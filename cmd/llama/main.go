@@ -21,8 +21,10 @@ func main() {
 	subcommands.Register(&GetCommand{}, "internals")
 
 	var state cli.GlobalState
+	debugAWS := false
 	flag.StringVar(&state.Region, "region", "", "S3 region for commands")
 	flag.StringVar(&state.Bucket, "bucket", "", "S3 bucket for the llama object store")
+	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 
 	flag.Parse()
 
@@ -30,11 +32,14 @@ func main() {
 		state.Bucket = os.Getenv("LLAMA_BUCKET")
 	}
 
-	var cfg aws.Config
+	cfg := aws.NewConfig()
 	if state.Region != "" {
-		cfg.Region = &state.Region
+		cfg = cfg.WithRegion(state.Region)
 	}
-	state.Session = session.Must(session.NewSession(&cfg))
+	if debugAWS {
+		cfg = cfg.WithLogLevel(aws.LogDebugWithHTTPBody)
+	}
+	state.Session = session.Must(session.NewSession(cfg))
 	state.Store = s3store.FromSession(state.Session, state.Bucket)
 
 	ctx := context.Background()
