@@ -74,7 +74,6 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	if c.logs {
 		input.LogType = aws.String(lambda.LogTypeTail)
 	}
-	log.Printf("Calling invoke, payload=%s", input.Payload)
 
 	resp, err := svc.Invoke(&input)
 	if err != nil {
