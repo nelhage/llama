@@ -147,7 +147,7 @@ func runOne(ctx context.Context, store store.Store, job *http.Response) (interfa
 	log.Printf("starting command: %v\n", cmd.Args)
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting command: %w", err)
+		return nil, fmt.Errorf("starting command: %q", err)
 	}
 	cmd.Wait()
 	resp := protocol.InvocationResponse{
