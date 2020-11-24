@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -82,7 +83,8 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	}
 
 	if resp.LogResult != nil {
-		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s", *resp.LogResult)
+		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
+		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", logs)
 	}
 
 	var reply protocol.InvocationResponse
