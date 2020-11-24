@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 )
 
 func main() {
@@ -59,11 +60,14 @@ func main() {
 }
 
 type InvocationSpec struct {
-	Args []string `json:"args"`
+	Args  []string `json:"args"`
+	Stdin string   `json:"stdin"`
 }
 
 type InvocationResponse struct {
-	ExitStatus int `json:"status"`
+	ExitStatus int    `json:"status"`
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
 }
 
 func runOne(job *http.Response) (interface{}, error) {
@@ -86,6 +90,12 @@ func runOne(job *http.Response) (interface{}, error) {
 		Dir:  root,
 		Args: append([]string{handler}, spec.Args...),
 	}
+	if spec.Stdin != "" {
+		cmd.Stdin = strings.NewReader(spec.Stdin)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting command: %w", err)
@@ -93,6 +103,8 @@ func runOne(job *http.Response) (interface{}, error) {
 	cmd.Wait()
 	resp := InvocationResponse{
 		ExitStatus: cmd.ProcessState.ExitCode(),
+		Stdout:     stdout.String(),
+		Stderr:     stderr.String(),
 	}
 
 	return resp, nil
