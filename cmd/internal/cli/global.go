@@ -4,12 +4,15 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/nelhage/llama/store"
 )
 
 type GlobalState struct {
 	Session *session.Session
 	Region  string
 	Bucket  string
+
+	Store store.Store
 }
 
 type key int

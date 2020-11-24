@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/store/s3store"
 )
 
 type StoreCommand struct {
@@ -28,14 +27,13 @@ func (c *StoreCommand) SetFlags(flags *flag.FlagSet) {
 func (c *StoreCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	store := s3store.FromSession(global.Session, global.Bucket)
 	bytes, err := ioutil.ReadFile(flag.Arg(0))
 	if err != nil {
 		log.Printf("read %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure
 	}
 
-	id, err := store.Store(ctx, bytes)
+	id, err := global.Store.Store(ctx, bytes)
 	if err != nil {
 		log.Printf("storing %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure
@@ -61,8 +59,7 @@ func (c *GetCommand) SetFlags(flags *flag.FlagSet) {
 func (c *GetCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	store := s3store.FromSession(global.Session, global.Bucket)
-	obj, err := store.Get(ctx, flag.Arg(0))
+	obj, err := global.Store.Get(ctx, flag.Arg(0))
 	if err != nil {
 		log.Printf("read %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure
