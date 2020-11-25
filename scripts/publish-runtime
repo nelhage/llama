@@ -5,7 +5,7 @@ root=$(dirname "$0")/..
 cd "$root"
 mkdir -p _obj
 CGO_ENABLED=0 go build -tags llama_runtime -o _obj/bootstrap ./cmd/llama_runtime/
-zip -j _obj/runtime.zip _obj/bootstrap
+zip -q -j _obj/runtime.zip _obj/bootstrap
 layer_version_arn=$(
     aws --output text --query LayerVersionArn \
         lambda publish-layer-version --layer-name llama-runtime --zip-file fileb://_obj/runtime.zip
