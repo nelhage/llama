@@ -152,8 +152,8 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([
 			arg = arg[idx+1:]
 
 			var a protocol.Arg
-
-			if pfx == "i" || pfx == "io" {
+			switch pfx {
+			case "i", "io":
 				data, err := ioutil.ReadFile(arg)
 				if err != nil {
 					return nil, nil, fmt.Errorf("Reading file: %q: %w", arg, err)
@@ -164,8 +164,11 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([
 					return nil, nil, fmt.Errorf("Writing to store: %q: %w", arg, err)
 				}
 				argSpec = a
-			}
-			if pfx == "o" || pfx == "io" {
+				if pfx == "i" {
+					break
+				}
+				fallthrough
+			case "o":
 				name := fmt.Sprintf("%s-%d", path.Base(arg), i)
 				a.Out = &name
 				argSpec = a
@@ -173,6 +176,10 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([
 					outputs = make(map[string]string)
 				}
 				outputs[name] = arg
+			case "raw":
+				argSpec = arg
+			default:
+				return nil, nil, fmt.Errorf("Unrecognize argspec: %s@...", pfx)
 			}
 		}
 		word, err := json.Marshal(argSpec)
