@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"runtime/trace"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -56,9 +57,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 
 	var outputs map[string]string
 	var err error
-	spec.Args, outputs, err = prepareArgs(ctx, global, flag.Args()[1:])
+	trace.WithRegion(ctx, "prepareArguments", func() {
+		spec.Args, outputs, err = prepareArgs(ctx, global, flag.Args()[1:])
+	})
 	if err != nil {
-		log.Printf("preparing arguments: ", err.Error())
+		log.Println("preparing arguments: ", err.Error())
 		return subcommands.ExitFailure
 	}
 
@@ -76,7 +79,10 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		input.LogType = aws.String(lambda.LogTypeTail)
 	}
 
-	resp, err := svc.Invoke(&input)
+	var resp *lambda.InvokeOutput
+	trace.WithRegion(ctx, "Invoke", func() {
+		resp, err = svc.Invoke(&input)
+	})
 	if err != nil {
 		log.Printf("Invoking: %s", err.Error())
 		return subcommands.ExitFailure
@@ -97,21 +103,23 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		log.Printf("unmarshal payload: %s", err.Error())
 	}
 
-	for key, blob := range reply.Outputs {
-		file, ok := outputs[key]
-		if !ok {
-			log.Printf("Unexpected output: %q", key)
-			continue
+	trace.WithRegion(ctx, "fetchOutputs", func() {
+		for key, blob := range reply.Outputs {
+			file, ok := outputs[key]
+			if !ok {
+				log.Printf("Unexpected output: %q", key)
+				continue
+			}
+			data, err := blob.Read(ctx, global.Store)
+			if err != nil {
+				log.Printf("reading output %q: %s", key, err.Error())
+				continue
+			}
+			if err := ioutil.WriteFile(file, data, 0644); err != nil {
+				log.Printf("reading output %q: %s", file, err.Error())
+			}
 		}
-		data, err := blob.Read(ctx, global.Store)
-		if err != nil {
-			log.Printf("reading output %q: %s", key, err.Error())
-			continue
-		}
-		if err := ioutil.WriteFile(file, data, 0644); err != nil {
-			log.Printf("reading output %q: %s", file, err.Error())
-		}
-	}
+	})
 
 	if reply.Stderr != nil {
 		bytes, err := reply.Stderr.Read(ctx, global.Store)
