@@ -78,7 +78,10 @@ here for our example:
 
 ```
 $ export LLAMA_BUCKET=llama.$(date +%s)
-$ aws s3api create-bucket --bucket $LLAMA_BUCKET --region us-west-2 --create-bucket-configuration LocationConstraint=us-west-2
+$ aws s3api create-bucket \
+  --bucket $LLAMA_BUCKET \
+  --region us-west-2 \
+  --create-bucket-configuration LocationConstraint=us-west-2
 ```
 
 Next, we need an IAM role for our lambdas, with access to CloudFront
@@ -97,8 +100,13 @@ $ aws iam create-role --role-name llama --assume-role-policy-document '{
         }
     ]
 }'
-$ aws iam attach-role-policy --role-name llama --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-$ aws iam put-role-policy --role-name llama --policy-name llama-access-object-store --policy-document '{
+$ aws iam attach-role-policy \
+  --role-name llama \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+$ aws iam put-role-policy \
+  --role-name llama \
+  --policy-name llama-access-object-store \
+  --policy-document '{
     "Version": "2012-10-17",
     "Statement": [
         {
