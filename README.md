@@ -25,7 +25,7 @@ and benchmarked how long it took to optimize them using 8 concurrent
 processes on my desktop:
 
 
-```
+```console
 $ time ls -1 *.png | parallel -j 8 optipng {} -out optimized/{/}
 [...]
 real    0m45.090s
@@ -37,7 +37,7 @@ Once we've prepared and `optipng` lambda function (we'll talk about
 setup in a later section), we can use `llama` to run the same
 computation in AWS Lambda:
 
-```
+```console
 $ time ls -1 *.png | parallel -j 151 llama invoke optipng i@{} -out o@optimized/llama-{/}
 real    0m21.506s
 user    0m9.879s
@@ -76,7 +76,7 @@ back and forth. `llama` expects to find this bucket in the
 `$LLAMA_BUCKET` environment variable. We'll use a unique-named bucket
 here for our example:
 
-```
+```console
 $ export LLAMA_BUCKET=llama.$(date +%s)
 $ aws s3api create-bucket \
   --bucket $LLAMA_BUCKET \
@@ -87,7 +87,7 @@ $ aws s3api create-bucket \
 Next, we need an IAM role for our lambdas, with access to CloudFront
 (for logging), and our S3 bucket:
 
-```
+```console
 $ aws iam create-role --role-name llama --assume-role-policy-document '{
     "Version": "2012-10-17",
     "Statement": [
@@ -132,7 +132,7 @@ Finally, we need to build and install the Llama Lambda runtime as a
 Lambda layer. We can do this from this repository using
 `scripts/publish-runtime`:
 
-```
+```console
 $ layer_arn=$(scripts/publish-runtime)
 ```
 
@@ -153,14 +153,14 @@ To package `optipng`, I've created a `Dockerfile` that will install it
 for Amazon Linux and package the necessary dependent `.so` objects
 into a zip file. You can run it like so:
 
-```
+```console
 $ docker build -t llama_optipng doc/optipng/
 $ docker run --rm -v $(pwd):/out llama_optipng cp /optipng.zip /out
 ```
 
 We're now ready to create our function:
 
-```
+```console
 $ account_id=$(aws --output text --query Account sts get-caller-identity)
 $ aws lambda create-function \
   --zip-file fileb://optipng.zip \
