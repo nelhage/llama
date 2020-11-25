@@ -46,6 +46,7 @@ func main() {
 
 	store, err := initStore()
 	if err != nil {
+		log.Printf("initialization error: %s", err.Error())
 		payload, _ := json.Marshal(struct {
 			Error string `json:"error"`
 		}{fmt.Sprintf("Unable to initialize store: %s", err.Error())})
@@ -71,6 +72,7 @@ func main() {
 			payload, err = json.Marshal(resp)
 		}
 		if err != nil {
+			log.Printf("llama: error invoking job: %s", err.Error())
 			errorPayload, _ := json.Marshal(struct {
 				Error string `json:"error"`
 			}{err.Error()})
