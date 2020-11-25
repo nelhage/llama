@@ -12,7 +12,7 @@ desirable.
 
 ## An example
 
-The `[optipng](http://optipng.sourceforge.net/)` command compresses
+The [`optipng`](http://optipng.sourceforge.net/) command compresses
 PNG files and otherwise optimizes them to be as small as possible,
 typically used in order to save bandwidth and speed load times on
 image assets. `optipng` is somewhat computationally expensive and
@@ -127,6 +127,13 @@ Lambda layer. We can do this from this repository using
 ```
 $ layer_arn=$(scripts/publish-runtime)
 ```
+
+## Packaging functions
+
+Everything above this point only needs to be done once, ever. Now,
+however, we're ready to package code into Lambda functions for use
+with `llama`. We'll follow these steps for each binary we need to run
+using Llama.
 
 Now we're ready to create a Lambda function. Llama is not opinionated
 about how you package your binaries for Lambda. All it needs is a path
