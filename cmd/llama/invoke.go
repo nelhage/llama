@@ -81,6 +81,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		log.Printf("Invoking: %s", err.Error())
 		return subcommands.ExitFailure
 	}
+	if resp.FunctionError != nil {
+		log.Printf("Invoke error: %s", *resp.FunctionError)
+		log.Printf("%s", resp.Payload)
+		return subcommands.ExitFailure
+	}
 
 	if resp.LogResult != nil {
 		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
