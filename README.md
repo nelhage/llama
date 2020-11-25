@@ -175,3 +175,12 @@ $ aws lambda create-function \
 ```
 
 [parallel]: https://www.gnu.org/software/parallel/
+
+# Inspiration
+
+Llama is in large part inspired by [`gg`][gg], a tool for outsourcing
+builds to Lambda. Llama is a much simpler tool but shares some of the
+same ideas and is inspired by a very similar vision of using Lambda as
+high-concurrency burst computation for interactive uses.
+
+[gg]: https://github.com/StanfordSNR/gg
