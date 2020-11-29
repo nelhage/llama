@@ -4,7 +4,7 @@ set -eu
 root=$(dirname "$0")/..
 cd "$root"
 mkdir -p _obj
-CGO_ENABLED=0 go build -tags llama.runtime \
+CGO_ENABLED=0 go build -tags llama.runtime,lambda.norpc \
                  -o _obj/bootstrap \
                  ./cmd/llama_runtime/
 zip -q -j _obj/runtime.zip _obj/bootstrap

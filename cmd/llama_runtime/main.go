@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -16,7 +15,9 @@ import (
 	"os/exec"
 	"path"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
+
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
@@ -54,41 +55,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	for {
-		req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/2018-06-01/runtime/invocation/next", runtimeURI), nil)
-		if err != nil {
-			log.Fatal("new request: ", err)
-		}
-		job, err := client.Do(req)
-		if err != nil {
-			log.Fatal("/next: ", err)
-		}
-		reqId := job.Header.Get("Lambda-Runtime-Aws-Request-Id")
-
-		resp, err := runOne(ctx, store, job)
-		var payload []byte
-		if err == nil {
-			payload, err = json.Marshal(resp)
-		}
-		if err != nil {
-			log.Printf("llama: error invoking job: %s", err.Error())
-			errorPayload, _ := json.Marshal(struct {
-				Error string `json:"error"`
-			}{err.Error()})
-			req, err = http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/2018-06-01/runtime/invocation/%s/error", runtimeURI, reqId),
-				bytes.NewReader(errorPayload))
-			if err != nil {
-				log.Fatal("build response: ", err)
-			}
-		} else {
-			req, err = http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/2018-06-01/runtime/invocation/%s/response", runtimeURI, reqId),
-				bytes.NewReader(payload))
-		}
-		_, err = client.Do(req)
-		if err != nil {
-			log.Fatal("finishing request: ", err)
-		}
-	}
+	lambda.StartWithContext(ctx, func(ctx context.Context, req *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+		return runOne(ctx, store, req)
+	})
 }
 
 type ParsedJob struct {
@@ -130,10 +99,8 @@ func (p *ParsedJob) TempPath(name string) (string, error) {
 	return out, nil
 }
 
-func runOne(ctx context.Context, store store.Store, job *http.Response) (interface{}, error) {
-	defer job.Body.Close()
-
-	parsed, err := parseJob(ctx, store, job.Body)
+func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+	parsed, err := parseJob(ctx, store, job)
 	if err != nil {
 		return nil, err
 	}
@@ -184,23 +151,14 @@ func runOne(ctx context.Context, store store.Store, job *http.Response) (interfa
 		resp.Outputs[out] = *blob
 	}
 
-	return resp, nil
+	return &resp, nil
 }
 
-func parseJob(ctx context.Context, store store.Store, body io.ReadCloser) (*ParsedJob, error) {
+func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationSpec) (*ParsedJob, error) {
 	handler := os.Getenv("_HANDLER")
 	root := os.Getenv("LAMBDA_TASK_ROOT")
 
-	data, err := ioutil.ReadAll(body)
-	if err != nil {
-		return nil, fmt.Errorf("reading body: %w", err)
-	}
-
-	var spec protocol.InvocationSpec
-	if err := json.Unmarshal(data, &spec); err != nil {
-		return nil, fmt.Errorf("parsing body: %w", err)
-	}
-
+	var err error
 	job := ParsedJob{
 		Exe:  path.Join(root, handler),
 		Root: root,
