@@ -1,4 +1,4 @@
-// +build llama_runtime
+// +build llama.runtime
 
 package main
 
