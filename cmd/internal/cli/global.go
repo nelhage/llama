@@ -8,9 +8,9 @@ import (
 )
 
 type GlobalState struct {
-	Session *session.Session
-	Region  string
-	Bucket  string
+	Session     *session.Session
+	Region      string
+	ObjectStore string
 
 	Store store.Store
 }

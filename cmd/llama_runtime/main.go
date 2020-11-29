@@ -27,12 +27,11 @@ func initStore() (store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	bucket := os.Getenv("LLAMA_BUCKET")
-	if bucket == "" {
-		return nil, errors.New("Could not read llama s3 bucket from LLAMA_BUCKET")
+	url := os.Getenv("LLAMA_OBJECT_STORE")
+	if url == "" {
+		return nil, errors.New("Could not read llama s3 bucket from LLAMA_OBJECT_STORE")
 	}
-	s3 := s3store.FromSession(session, bucket)
-	return s3, nil
+	return s3store.FromSession(session, url)
 }
 
 func main() {

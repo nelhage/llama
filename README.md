@@ -71,13 +71,15 @@ First of all, we need configured AWS credentials on our development
 machine. These should be configured in `~/.aws/credentials` so the AWS
 CLI and `llama` both can find them.
 
-Next, we need an S3 bucket to use as an object store for moving files
-back and forth. `llama` expects to find this bucket in the
-`$LLAMA_BUCKET` environment variable. We'll use a unique-named bucket
-here for our example:
+Next, we need an S3 bucket and prefix to use as an object store for
+moving files back and forth. `llama` expects to find this path in the
+`$LLAMA_OBJECT_STORE` environment variable. I'll generate a unique
+unique-named bucket here for our example, but you can use an existing
+bucket if you have one:
 
 ```console
-$ export LLAMA_BUCKET=llama.$(date +%s)
+$ LLAMA_BUCKET=llama.$(date +%s)
+$ export LLAMA_OBJECT_STORE=s3://$LLAMA_BUCKET/obj/
 $ aws s3api create-bucket \
   --bucket $LLAMA_BUCKET \
   --region us-west-2 \
@@ -128,6 +130,9 @@ $ aws iam put-role-policy \
 '
 ```
 
+(If you're using your own bucket, you'll need to modify the s3 grant
+accordingly)
+
 Finally, we need to build and install the Llama Lambda runtime as a
 Lambda layer. We can do this from this repository using
 `scripts/publish-runtime`:
@@ -170,7 +175,7 @@ $ aws lambda create-function \
   --memory-size 3008 \
   --role "arn:aws:iam::${account_id}:role/llama" \
   --layers "$layer_arn" \
-  --environment "Variables={LLAMA_BUCKET=$LLAMA_BUCKET}" \
+  --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
   --timeout 60
 ```
 

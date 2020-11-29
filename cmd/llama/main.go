@@ -32,14 +32,14 @@ func runLlama(ctx context.Context) int {
 	debugAWS := false
 	var traceFile string
 	flag.StringVar(&state.Region, "region", "", "S3 region for commands")
-	flag.StringVar(&state.Bucket, "bucket", "", "S3 bucket for the llama object store")
+	flag.StringVar(&state.ObjectStore, "sotre", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
 
 	flag.Parse()
 
-	if state.Bucket == "" {
-		state.Bucket = os.Getenv("LLAMA_BUCKET")
+	if state.ObjectStore == "" {
+		state.ObjectStore = os.Getenv("LLAMA_OBJECT_STORE")
 	}
 	if traceFile != "" {
 		f, err := os.Create(traceFile)
@@ -54,6 +54,7 @@ func runLlama(ctx context.Context) int {
 	ctx, task := trace.NewTask(ctx, "llama")
 	defer task.End()
 
+	var err error
 	trace.WithRegion(ctx, "global-init", func() {
 		cfg := aws.NewConfig()
 		if state.Region != "" {
@@ -63,10 +64,13 @@ func runLlama(ctx context.Context) int {
 			cfg = cfg.WithLogLevel(aws.LogDebugWithHTTPBody)
 		}
 		state.Session = session.Must(session.NewSession(cfg))
-		state.Store = s3store.FromSession(state.Session, state.Bucket)
+		state.Store, err = s3store.FromSession(state.Session, state.ObjectStore)
 
 		ctx = cli.WithState(ctx, &state)
 	})
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	return int(subcommands.Execute(ctx))
 }
