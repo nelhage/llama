@@ -11,6 +11,7 @@ import (
 	"path"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -39,10 +40,24 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	sha := sha256.Sum256(obj)
 	id := hex.EncodeToString(sha[:])
-	_, err := s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	key := aws.String(path.Join(s.url.Path, id))
+	_, err := s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		Bucket: &s.url.Host,
+		Key:    key,
+	})
+	if err == nil {
+		return id, nil
+	}
+	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
+		// 404 not found -- do the upload
+	} else {
+		return "", err
+	}
+
+	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(obj),
 		Bucket: &s.url.Host,
-		Key:    aws.String(path.Join(s.url.Path, id)),
+		Key:    key,
 	})
 	if err != nil {
 		return "", err
