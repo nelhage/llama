@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,10 +12,10 @@ import (
 	"runtime/trace"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
 )
 
@@ -65,46 +64,22 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitFailure
 	}
 
-	payload, err := json.Marshal(&spec)
-	if err != nil {
-		log.Fatalf("marshal: %s", err.Error())
-	}
-
 	svc := lambda.New(global.Session)
-	input := lambda.InvokeInput{
-		FunctionName: aws.String(flag.Arg(0)),
-		Payload:      payload,
-	}
-	if c.logs {
-		input.LogType = aws.String(lambda.LogTypeTail)
-	}
-
-	var resp *lambda.InvokeOutput
-	trace.WithRegion(ctx, "Invoke", func() {
-		resp, err = svc.Invoke(&input)
+	response, err := llama.Invoke(ctx, svc, &llama.InvokeArgs{
+		Function:   flag.Arg(0),
+		Spec:       spec,
+		ReturnLogs: c.logs,
 	})
 	if err != nil {
-		log.Printf("Invoking: %s", err.Error())
-		return subcommands.ExitFailure
-	}
-	if resp.FunctionError != nil {
-		log.Printf("Invoke error: %s", *resp.FunctionError)
-		log.Printf("%s", resp.Payload)
-		return subcommands.ExitFailure
+		log.Fatalf("invoke: %s", err.Error())
 	}
 
-	if resp.LogResult != nil {
-		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
-		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", logs)
-	}
-
-	var reply protocol.InvocationResponse
-	if err := json.Unmarshal(resp.Payload, &reply); err != nil {
-		log.Printf("unmarshal payload: %s", err.Error())
+	if response.Logs != nil {
+		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", response.Logs)
 	}
 
 	trace.WithRegion(ctx, "fetchOutputs", func() {
-		for key, blob := range reply.Outputs {
+		for key, blob := range response.Response.Outputs {
 			file, ok := outputs[key]
 			if !ok {
 				log.Printf("Unexpected output: %q", key)
@@ -121,16 +96,16 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		}
 	})
 
-	if reply.Stderr != nil {
-		bytes, err := reply.Stderr.Read(ctx, global.Store)
+	if response.Response.Stderr != nil {
+		bytes, err := response.Response.Stderr.Read(ctx, global.Store)
 		if err != nil {
 			log.Printf("Reading stderr: %s", err.Error())
 		} else {
 			os.Stderr.Write(bytes)
 		}
 	}
-	if reply.Stdout != nil {
-		bytes, err := reply.Stdout.Read(ctx, global.Store)
+	if response.Response.Stdout != nil {
+		bytes, err := response.Response.Stdout.Read(ctx, global.Store)
 		if err != nil {
 			log.Printf("Reading stdout: %s", err.Error())
 		} else {
@@ -138,7 +113,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		}
 	}
 
-	return subcommands.ExitStatus(reply.ExitStatus)
+	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
 func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([]json.RawMessage, map[string]string, error) {
