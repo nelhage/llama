@@ -123,7 +123,11 @@ func (p *ParsedJob) TempPath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return path.Join(tmp, name), nil
+	out := path.Join(tmp, name)
+	if err := os.MkdirAll(path.Dir(out), 0755); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 func runOne(ctx context.Context, store store.Store, job *http.Response) (interface{}, error) {
@@ -224,7 +228,7 @@ func parseJob(ctx context.Context, store store.Store, body io.ReadCloser) (*Pars
 		var argpath string
 
 		if io.In != nil {
-			argpath, err = job.TempPath(fmt.Sprintf("arg-%d", i))
+			argpath, err = job.TempPath(fmt.Sprintf("llama/arg-%d", i))
 			if err != nil {
 				return nil, err
 			}
@@ -238,7 +242,7 @@ func parseJob(ctx context.Context, store store.Store, body io.ReadCloser) (*Pars
 		}
 		if io.Out != nil {
 			if argpath == "" {
-				argpath, err = job.TempPath(fmt.Sprintf("out-%d", i))
+				argpath, err = job.TempPath(fmt.Sprintf("llama/out/%d_%s", i, *io.Out))
 				if err != nil {
 					return nil, err
 				}
@@ -250,5 +254,28 @@ func parseJob(ctx context.Context, store store.Store, body io.ReadCloser) (*Pars
 		}
 		job.Args = append(job.Args, argpath)
 	}
+	for path, file := range spec.Files {
+		log.Printf("Writing file: %q", path)
+		data, err := file.Read(ctx, store)
+		if err != nil {
+			return nil, err
+		}
+		path, err = job.TempPath(path)
+		if err != nil {
+			return nil, err
+		}
+		mode := file.Mode
+		if mode == 0 {
+			mode = 0644
+		}
+		if err := ioutil.WriteFile(path, data, mode); err != nil {
+			return nil, err
+		}
+	}
+
+	if job.Temp != "" {
+		job.Root = job.Temp
+	}
+
 	return &job, nil
 }

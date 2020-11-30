@@ -19,9 +19,44 @@ import (
 	"github.com/nelhage/llama/protocol"
 )
 
+type inputFile struct {
+	source string
+	dest   string
+}
+
+type fileList struct {
+	files []inputFile
+}
+
+func (f *fileList) String() string {
+	return ""
+}
+
+func (f *fileList) Get() interface{} {
+	return f.files
+}
+
+func (f *fileList) Set(v string) error {
+	idx := strings.IndexRune(v, ':')
+	var source, dest string
+	if idx > 0 {
+		source = v[:idx]
+		dest = v[idx+1:]
+	} else {
+		source = v
+		dest = v
+	}
+	if path.IsAbs(dest) {
+		return fmt.Errorf("-file: cannot expose file at absolute path: %q", dest)
+	}
+	f.files = append(f.files, inputFile{source, dest})
+	return nil
+}
+
 type InvokeCommand struct {
 	stdin bool
 	logs  bool
+	files fileList
 }
 
 func (*InvokeCommand) Name() string     { return "invoke" }
@@ -34,6 +69,8 @@ func (*InvokeCommand) Usage() string {
 func (c *InvokeCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.stdin, "stdin", false, "Read from stdin and pass it to the command")
 	flags.BoolVar(&c.logs, "logs", false, "Display command invocation logs")
+	flags.Var(&c.files, "f", "Pass a file through to the invocation")
+	flags.Var(&c.files, "file", "Pass a file through to the invocation")
 }
 
 func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -52,6 +89,22 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			log.Printf("writing to store: %s", err.Error())
 			return subcommands.ExitFailure
 		}
+	}
+	if len(c.files.files) > 0 {
+		spec.Files = make(map[string]protocol.File, len(c.files.files))
+	}
+	for _, file := range c.files.files {
+		data, err := ioutil.ReadFile(file.source)
+		if err != nil {
+			log.Println(fmt.Errorf("reading file %q: %w", file.source, err).Error())
+			return subcommands.ExitFailure
+		}
+		blob, err := protocol.NewBlob(ctx, global.Store, data)
+		if err != nil {
+			log.Printf("writing to store: %s", err.Error())
+			return subcommands.ExitFailure
+		}
+		spec.Files[file.dest] = protocol.File{Blob: *blob}
 	}
 
 	var outputs map[string]string
@@ -144,7 +197,13 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([
 				}
 				fallthrough
 			case "o":
-				name := fmt.Sprintf("%s-%d", path.Base(arg), i)
+				name := path.Base(arg)
+				if outputs != nil {
+					if _, ok := outputs[name]; ok {
+						name = fmt.Sprintf("%d-%s", i, name)
+					}
+				}
+
 				a.Out = &name
 				argSpec = a
 				if outputs == nil {

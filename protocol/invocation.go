@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"unicode/utf8"
 
 	"github.com/nelhage/llama/store"
@@ -23,9 +24,15 @@ type Arg struct {
 	Out *string `json:"o,omitempty"`
 }
 
+type File struct {
+	Blob
+	Mode os.FileMode `json:"m"`
+}
+
 type InvocationSpec struct {
 	Args  []json.RawMessage `json:"args"`
 	Stdin *Blob             `json:"stdin,omitempty"`
+	Files map[string]File   `json:"files"`
 }
 
 type InvocationResponse struct {
