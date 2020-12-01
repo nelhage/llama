@@ -67,12 +67,17 @@ func (f *fileList) Prepare(ctx context.Context, store store.Store) (map[string]p
 				outErr = fmt.Errorf("reading file %q: %w", file.source, err)
 				return
 			}
+			st, err := os.Stat(file.source)
+			if err != nil {
+				outErr = fmt.Errorf("stat %q: %w", file.source, err)
+				return
+			}
 			blob, err := protocol.NewBlob(ctx, store, data)
 			if err != nil {
 				outErr = err
 				return
 			}
-			files[file.dest] = protocol.File{Blob: *blob}
+			files[file.dest] = protocol.File{Blob: *blob, Mode: st.Mode()}
 		}
 	})
 	if outErr != nil {
