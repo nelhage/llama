@@ -135,27 +135,28 @@ type jobContext struct {
 	I        int
 	Line     string
 	tempPath string
-	err      error
 }
 
-func (j *jobContext) File() string {
+func (j *jobContext) File() (string, error) {
 	if j.tempPath == "" {
 		fh, err := ioutil.TempFile("", "llama.*")
 		if err != nil {
-			j.err = err
-			return ""
+			return "", err
 		}
 
-		_, j.err = fh.WriteString(j.Line)
-		if j.err == nil {
-			_, j.err = fh.Write([]byte{'\n'})
+		_, err = fh.WriteString(j.Line)
+		if err == nil {
+			_, err = fh.Write([]byte{'\n'})
 		}
 		j.tempPath = fh.Name()
-		if j.err == nil {
-			j.err = fh.Close()
+		if err == nil {
+			err = fh.Close()
+		}
+		if err != nil {
+			return "", err
 		}
 	}
-	return j.tempPath
+	return j.tempPath, nil
 }
 
 func (j *jobContext) Cleanup() {
@@ -188,10 +189,6 @@ func generateJobs(ctx context.Context, templates []*template.Template, out chan<
 		for _, tpl := range templates {
 			var w bytes.Buffer
 			err := tpl.Execute(&w, &job.TemplateContext)
-			if job.TemplateContext.err != nil {
-				job.Err = job.TemplateContext.err
-				break
-			}
 			if err != nil {
 				job.Err = err
 				break
