@@ -59,9 +59,9 @@ offloaded, freeing up local compute resources for interactive
 applications or other use cases.
 
 This operation consumed about 700 CPU-seconds in Lambda. I configured
-`optipng` to have 3008MB of memory (the lambda maximum), because AWS
-allocates CPU proportional to memory. That comes out to about 2105600
-MB-seconds of usage, or about $0.035 assuming I'm already out of the
+`optipng` to have 1792MB of memory, which is the point at which lambda
+allocates a full vCPU to the process. That comes out to about 1254400
+MB-seconds of usage, or about $0.017 assuming I'm already out of the
 Lambda free tier.
 
 # Configuring llama
@@ -174,7 +174,7 @@ $ aws lambda create-function \
   --function-name optipng \
   --handler optipng.sh \
   --runtime provided.al2 \
-  --memory-size 3008 \
+  --memory-size 1792 \
   --role "arn:aws:iam::${account_id}:role/llama" \
   --layers "$layer_arn" \
   --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
