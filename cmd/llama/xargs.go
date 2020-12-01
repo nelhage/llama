@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"runtime/trace"
@@ -22,7 +23,6 @@ import (
 )
 
 type XargsCommand struct {
-	stdin       bool
 	logs        bool
 	files       fileList
 	concurrency int
@@ -47,11 +47,12 @@ func (c *XargsCommand) SetFlags(flags *flag.FlagSet) {
 }
 
 type Invocation struct {
-	StrArgs     []string
-	Args        *llama.InvokeArgs
-	OutputPaths map[string]string
-	Result      *llama.InvokeResult
-	Err         error
+	StrArgs         []string
+	TemplateContext jobContext
+	Args            *llama.InvokeArgs
+	OutputPaths     map[string]string
+	Result          *llama.InvokeResult
+	Err             error
 }
 
 func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -115,7 +116,7 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		if done.Result.Response.Stdout != nil {
 			stdout, err := done.Result.Response.Stdout.Read(ctx, global.Store)
 			if err == nil {
-				log.Printf("==== stdout ====\n%s\n==== end stderr ====\n", stdout)
+				log.Printf("==== stdout ====\n%s\n==== end stdout ====\n", stdout)
 			}
 		}
 		if done.Result.Response.Stderr != nil {
@@ -127,6 +128,40 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	}
 
 	return code
+}
+
+// The context object paassed to template.Template.Execute for each
+type jobContext struct {
+	I        int
+	Line     string
+	tempPath string
+	err      error
+}
+
+func (j *jobContext) File() string {
+	if j.tempPath == "" {
+		fh, err := ioutil.TempFile("", "llama.*")
+		if err != nil {
+			j.err = err
+			return ""
+		}
+
+		_, j.err = fh.WriteString(j.Line)
+		if j.err == nil {
+			_, j.err = fh.Write([]byte{'\n'})
+		}
+		j.tempPath = fh.Name()
+		if j.err == nil {
+			j.err = fh.Close()
+		}
+	}
+	return j.tempPath
+}
+
+func (j *jobContext) Cleanup() {
+	if j.tempPath != "" {
+		os.Remove(j.tempPath)
+	}
 }
 
 func generateJobs(ctx context.Context, templates []*template.Template, out chan<- *Invocation) {
@@ -144,14 +179,19 @@ func generateJobs(ctx context.Context, templates []*template.Template, out chan<
 			log.Fatalf("read stdin: %s", err.Error())
 		}
 		line = strings.TrimRight(line, "\n")
-		tplCtx := struct {
-			I    int
-			Line string
-		}{i, line}
-		var job Invocation
+		job := Invocation{
+			TemplateContext: jobContext{
+				I:    i,
+				Line: line,
+			},
+		}
 		for _, tpl := range templates {
 			var w bytes.Buffer
-			err := tpl.Execute(&w, &tplCtx)
+			err := tpl.Execute(&w, &job.TemplateContext)
+			if job.TemplateContext.err != nil {
+				job.Err = job.TemplateContext.err
+				break
+			}
 			if err != nil {
 				job.Err = err
 				break
@@ -188,6 +228,7 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 			job.Args.Spec.Args = append(job.Args.Spec.Args, word)
 		}
 	})
+	job.TemplateContext.Cleanup()
 	if job.Err != nil {
 		return
 	}
