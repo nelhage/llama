@@ -183,6 +183,30 @@ $ aws lambda create-function \
 
 [parallel]: https://www.gnu.org/software/parallel/
 
+## Cleaning up old objects
+
+Llama uses the S3 bucket as a content-addressable store to move
+objects between your workstation and the Lambda worker
+processes. Objects are not needed after a llama invocation completes,
+so you may optionally wish to establish a bucket lifecycle policy to
+clean up old objects:
+
+```console
+aws s3api put-bucket-lifecycle-configuration --bucket $LLAMA_BUCKET  --lifecycle-configuration '{
+  "Rules": [
+    {
+      "ID": "Delete old objects",
+      "Prefix": "obj/",
+      "Status": "Enabled",
+      "Expiration": {
+          "Days": 31
+      }
+    }
+  ]
+}'
+```
+
+
 # Inspiration
 
 Llama is in large part inspired by [`gg`][gg], a tool for outsourcing
