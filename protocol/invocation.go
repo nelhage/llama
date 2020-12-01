@@ -26,13 +26,13 @@ type Arg struct {
 
 type File struct {
 	Blob
-	Mode os.FileMode `json:"m"`
+	Mode os.FileMode `json:"m,omitempty"`
 }
 
 type InvocationSpec struct {
 	Args  []json.RawMessage `json:"args"`
 	Stdin *Blob             `json:"stdin,omitempty"`
-	Files map[string]File   `json:"files"`
+	Files map[string]File   `json:"files,omitempty"`
 }
 
 type InvocationResponse struct {
