@@ -132,21 +132,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	}
 
 	trace.WithRegion(ctx, "fetchOutputs", func() {
-		for key, blob := range response.Response.Outputs {
-			file, ok := outputs[key]
-			if !ok {
-				log.Printf("Unexpected output: %q", key)
-				continue
-			}
-			data, err := blob.Read(ctx, global.Store)
-			if err != nil {
-				log.Printf("reading output %q: %s", key, err.Error())
-				continue
-			}
-			if err := ioutil.WriteFile(file, data, 0644); err != nil {
-				log.Printf("reading output %q: %s", file, err.Error())
-			}
-		}
+		fetchOutputs(ctx, outputs, &response.Response)
 	})
 
 	if response.Response.Stderr != nil {
@@ -169,58 +155,86 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
+func parseArg(ctx context.Context, outputs *map[string]string, arg string) (json.RawMessage, error) {
+	global := cli.MustState(ctx)
+	var argSpec interface{} = arg
+	idx := strings.Index(arg, "@")
+	if idx > 0 {
+		pfx := arg[:idx]
+		arg = arg[idx+1:]
+
+		var a protocol.Arg
+		switch pfx {
+		case "i", "io":
+			data, err := ioutil.ReadFile(arg)
+			if err != nil {
+				return nil, fmt.Errorf("Reading file: %q: %w", arg, err)
+
+			}
+			a.In, err = protocol.NewBlob(ctx, global.Store, data)
+			if err != nil {
+				return nil, fmt.Errorf("Writing to store: %q: %w", arg, err)
+			}
+			argSpec = a
+			if pfx == "i" {
+				break
+			}
+			fallthrough
+		case "o":
+			name := path.Base(arg)
+			if *outputs != nil {
+				if _, ok := (*outputs)[name]; ok {
+					name = fmt.Sprintf("%d-%s", len(*outputs), name)
+				}
+			}
+
+			a.Out = &name
+			argSpec = a
+			if outputs == nil {
+				*outputs = make(map[string]string)
+			}
+			(*outputs)[name] = arg
+		case "raw":
+			argSpec = arg
+		default:
+			return nil, fmt.Errorf("Unrecognize argspec: %s@...", pfx)
+		}
+	}
+	word, err := json.Marshal(argSpec)
+	if err != nil {
+		log.Fatal("marshal: ", err)
+	}
+	return word, nil
+}
+
+func fetchOutputs(ctx context.Context, outputs map[string]string, resp *protocol.InvocationResponse) {
+	global := cli.MustState(ctx)
+	for key, blob := range resp.Outputs {
+		file, ok := outputs[key]
+		if !ok {
+			log.Printf("Unexpected output: %q", key)
+			continue
+		}
+		data, err := blob.Read(ctx, global.Store)
+		if err != nil {
+			log.Printf("reading output %q: %s", key, err.Error())
+			continue
+		}
+		if err := ioutil.WriteFile(file, data, 0644); err != nil {
+			log.Printf("reading output %q: %s", file, err.Error())
+		}
+	}
+}
+
 func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([]json.RawMessage, map[string]string, error) {
 	out := make([]json.RawMessage, len(args))
 	var outputs map[string]string
 	for i, arg := range args {
-		var argSpec interface{} = arg
-		idx := strings.Index(arg, "@")
-		if idx > 0 {
-			pfx := arg[:idx]
-			arg = arg[idx+1:]
-
-			var a protocol.Arg
-			switch pfx {
-			case "i", "io":
-				data, err := ioutil.ReadFile(arg)
-				if err != nil {
-					return nil, nil, fmt.Errorf("Reading file: %q: %w", arg, err)
-
-				}
-				a.In, err = protocol.NewBlob(ctx, global.Store, data)
-				if err != nil {
-					return nil, nil, fmt.Errorf("Writing to store: %q: %w", arg, err)
-				}
-				argSpec = a
-				if pfx == "i" {
-					break
-				}
-				fallthrough
-			case "o":
-				name := path.Base(arg)
-				if outputs != nil {
-					if _, ok := outputs[name]; ok {
-						name = fmt.Sprintf("%d-%s", i, name)
-					}
-				}
-
-				a.Out = &name
-				argSpec = a
-				if outputs == nil {
-					outputs = make(map[string]string)
-				}
-				outputs[name] = arg
-			case "raw":
-				argSpec = arg
-			default:
-				return nil, nil, fmt.Errorf("Unrecognize argspec: %s@...", pfx)
-			}
-		}
-		word, err := json.Marshal(argSpec)
+		var err error
+		out[i], err = parseArg(ctx, &outputs, arg)
 		if err != nil {
-			log.Fatal("marshal: ", err)
+			return nil, nil, err
 		}
-		out[i] = json.RawMessage(word)
 	}
 	return out, outputs, nil
 }
