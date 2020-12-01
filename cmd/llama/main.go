@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
 )
 
@@ -32,10 +33,12 @@ func runLlama(ctx context.Context) int {
 	var state cli.GlobalState
 	debugAWS := false
 	var traceFile string
+	var storeConcurrency int
 	flag.StringVar(&state.Region, "region", "", "S3 region for commands")
-	flag.StringVar(&state.ObjectStore, "sotre", "", "Path to the llama object store. s3://BUCKET/PATH")
+	flag.StringVar(&state.ObjectStore, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
+	flag.IntVar(&storeConcurrency, "s3-concurrency", 8, "Maximum concurrent S3 uploads/downloads")
 
 	flag.Parse()
 
@@ -66,6 +69,9 @@ func runLlama(ctx context.Context) int {
 		}
 		state.Session = session.Must(session.NewSession(cfg))
 		state.Store, err = s3store.FromSession(state.Session, state.ObjectStore)
+		if storeConcurrency > 0 && err == nil {
+			state.Store = store.LimitConcurrency(state.Store, storeConcurrency)
+		}
 
 		ctx = cli.WithState(ctx, &state)
 	})
