@@ -17,6 +17,7 @@ import (
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/store"
 )
 
 type inputFile struct {
@@ -51,6 +52,33 @@ func (f *fileList) Set(v string) error {
 	}
 	f.files = append(f.files, inputFile{source, dest})
 	return nil
+}
+
+func (f *fileList) Prepare(ctx context.Context, store store.Store) (map[string]protocol.File, error) {
+	if f.files == nil {
+		return nil, nil
+	}
+	var outErr error
+	files := make(map[string]protocol.File, len(f.files))
+	trace.WithRegion(ctx, "uploadFiles", func() {
+		for _, file := range f.files {
+			data, err := ioutil.ReadFile(file.source)
+			if err != nil {
+				outErr = fmt.Errorf("reading file %q: %w", file.source, err)
+				return
+			}
+			blob, err := protocol.NewBlob(ctx, store, data)
+			if err != nil {
+				outErr = err
+				return
+			}
+			files[file.dest] = protocol.File{Blob: *blob}
+		}
+	})
+	if outErr != nil {
+		return nil, outErr
+	}
+	return files, nil
 }
 
 type InvokeCommand struct {
@@ -90,25 +118,17 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			return subcommands.ExitFailure
 		}
 	}
+
+	var err error
 	if len(c.files.files) > 0 {
-		spec.Files = make(map[string]protocol.File, len(c.files.files))
-	}
-	for _, file := range c.files.files {
-		data, err := ioutil.ReadFile(file.source)
+		spec.Files, err = c.files.Prepare(ctx, global.Store)
 		if err != nil {
-			log.Println(fmt.Errorf("reading file %q: %w", file.source, err).Error())
+			log.Println(err.Error())
 			return subcommands.ExitFailure
 		}
-		blob, err := protocol.NewBlob(ctx, global.Store, data)
-		if err != nil {
-			log.Printf("writing to store: %s", err.Error())
-			return subcommands.ExitFailure
-		}
-		spec.Files[file.dest] = protocol.File{Blob: *blob}
 	}
 
 	var outputs map[string]string
-	var err error
 	trace.WithRegion(ctx, "prepareArguments", func() {
 		spec.Args, outputs, err = prepareArgs(ctx, global, flag.Args()[1:])
 	})
@@ -131,9 +151,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", response.Logs)
 	}
 
-	trace.WithRegion(ctx, "fetchOutputs", func() {
-		fetchOutputs(ctx, outputs, &response.Response)
-	})
+	fetchOutputs(ctx, outputs, &response.Response)
 
 	if response.Response.Stderr != nil {
 		bytes, err := response.Response.Stderr.Read(ctx, global.Store)
@@ -190,7 +208,7 @@ func parseArg(ctx context.Context, outputs *map[string]string, arg string) (json
 
 			a.Out = &name
 			argSpec = a
-			if outputs == nil {
+			if *outputs == nil {
 				*outputs = make(map[string]string)
 			}
 			(*outputs)[name] = arg
@@ -208,22 +226,24 @@ func parseArg(ctx context.Context, outputs *map[string]string, arg string) (json
 }
 
 func fetchOutputs(ctx context.Context, outputs map[string]string, resp *protocol.InvocationResponse) {
-	global := cli.MustState(ctx)
-	for key, blob := range resp.Outputs {
-		file, ok := outputs[key]
-		if !ok {
-			log.Printf("Unexpected output: %q", key)
-			continue
+	trace.WithRegion(ctx, "fetchOutputs", func() {
+		global := cli.MustState(ctx)
+		for key, blob := range resp.Outputs {
+			file, ok := outputs[key]
+			if !ok {
+				log.Printf("Unexpected output: %q", key)
+				continue
+			}
+			data, err := blob.Read(ctx, global.Store)
+			if err != nil {
+				log.Printf("reading output %q: %s", key, err.Error())
+				continue
+			}
+			if err := ioutil.WriteFile(file, data, 0644); err != nil {
+				log.Printf("reading output %q: %s", file, err.Error())
+			}
 		}
-		data, err := blob.Read(ctx, global.Store)
-		if err != nil {
-			log.Printf("reading output %q: %s", key, err.Error())
-			continue
-		}
-		if err := ioutil.WriteFile(file, data, 0644); err != nil {
-			log.Printf("reading output %q: %s", file, err.Error())
-		}
-	}
+	})
 }
 
 func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([]json.RawMessage, map[string]string, error) {

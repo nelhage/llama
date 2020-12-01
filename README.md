@@ -17,8 +17,8 @@ PNG files and otherwise optimizes them to be as small as possible,
 typically used in order to save bandwidth and speed load times on
 image assets. `optipng` is somewhat computationally expensive and
 compressing a large number of PNG files can be a slow operation. With
-`llama` and [GNU parallel][parallel], we can optimize a large of
-images by outsourcing the computation to lambda.
+`llama`, we can optimize a large of images by outsourcing the
+computation to lambda.
 
 I prepared a directory full of 151 PNG images of the original Pokémon,
 and benchmarked how long it took to optimize them using 8 concurrent
@@ -38,20 +38,22 @@ setup in a later section), we can use `llama` to run the same
 computation in AWS Lambda:
 
 ```console
-$ time ls -1 *.png | parallel -j 151 llama invoke optipng i@{} -out o@optimized/llama-{/}
-real    0m21.506s
-user    0m9.879s
-sys     0m3.086s
+$ time ls -1 *.png | llama xargs -logs -j 151 optipng 'i@{{.Line}}' -out 'o@optimized/{{.Line}}'
+real    0m15.540s
+user    0m2.565s
+sys     0m0.570s
 ```
 
-We use `llama invoke` to run the lambda, and use llama's `i@` and `o@`
-annotations on arguments to specify files to be copied between the
-local environment and the Lambda environment.
+We use `llama xargs`, which works a bit like `xargs(1)`, but runs each
+input line as a separate command in Lambda. It also uses the Go
+template language to provide more flexibility in substitutions. We use
+llama's `i@` and `o@` annotations on arguments to specify files to be
+copied between the local environment and the Lambda environment.
 
 Lambda's CPUs are considerably slower than my desktop and the network
 operations have overhead, and so we don't see anywhere near a full
 `151/8` speedup. However, the additional parallelism still nets us a
-2x improvement in real-time latency. Note also the vastly decreased
+3x improvement in real-time latency. Note also the vastly decreased
 `user` time, demonstrating that the CPU-intensive work has been
 offloaded, freeing up local compute resources for interactive
 applications or other use cases.

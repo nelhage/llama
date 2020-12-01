@@ -18,6 +18,7 @@ func main() {
 	subcommands.Register(subcommands.HelpCommand(), "")
 
 	subcommands.Register(&InvokeCommand{}, "")
+	subcommands.Register(&XargsCommand{}, "")
 
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")

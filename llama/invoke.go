@@ -49,6 +49,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 
 	var resp *lambda.InvokeOutput
 	trace.WithRegion(ctx, "Invoke", func() {
+		trace.Logf(ctx, "llama.invoke", "invoke: function=%s args=%v", args.Function, args.Spec.Args)
 		resp, err = svc.Invoke(&input)
 	})
 	if err != nil {
