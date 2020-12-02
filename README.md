@@ -150,19 +150,49 @@ however, we're ready to package code into Lambda functions for use
 with `llama`. We'll follow these steps for each binary we need to run
 using Llama.
 
-Now we're ready to create a Lambda function. Llama is not opinionated
-about how you package your binaries for Lambda. All it needs is a path
-that it can `execve`. For statically-linked binaries you can package
-them directly; I've also found it convenient to use `Docker` to
-prepare images in the Amazon Linux environment.
+Llama supports both old-style Lambda code packages, where the code is
+published as a zip file, as well as container images. Container images
+are much more flexible, but require an ECR registry and are a bit
+fiddly. We'll walk through both approaches.
 
-To package `optipng`, I've created a `Dockerfile` that will install it
-for Amazon Linux and package the necessary dependent `.so` objects
-into a zip file. You can run it like so:
+### Using a container image
+
+To run any code in a container using Llama on Lambda, you just need to
+add the Llama runtime to the container, and point the docker
+`ENTRYPOINT` at it.
+
+The `Dockerfile` in this repository will build the runtime and create
+an image appropriate for use as a base image. Let's build a local
+version to make sure we have the latest code:
 
 ```console
-$ docker build -t llama_optipng doc/optipng/
-$ docker run --rm -v $(pwd):/out llama_optipng cp /optipng.zip /out
+$ docker build -t nelhage/llama:latest .
+```
+
+We can use that image as a base image, if we are willing to use an
+Alpine base image. However, we can also just extract the runtime from
+it into our image. The `doc/optipng/Dockerfile` file builds just such
+an image. The key lines there are:
+
+```dockerfile
+FROM nelhage/llama as llama
+[...]
+COPY --from=0 /llama_runtime /llama_runtime
+ENTRYPOINT ["/llama_runtime"]
+```
+
+In order to deploy a Lambda based on that image, though, we're going
+to need an ECR repository. Let's create and configure one:
+
+```console
+$ repository_url=$(aws --output text --query repository.repositoryUri ecr create-repository --repository-name optipng)
+$ aws ecr get-login-password | docker login --username AWS --password-stdin $(dirname "$repository_url")
+```
+
+We're now ready to build and upload our image:
+```console
+$ docker build -t "${repository_url}:latest" doc/optipng/
+$ docker push "${repository_url}:latest"
 ```
 
 We're now ready to create our function:
@@ -170,20 +200,55 @@ We're now ready to create our function:
 ```console
 $ account_id=$(aws --output text --query Account sts get-caller-identity)
 $ aws lambda create-function \
-  --zip-file fileb://optipng.zip \
-  --function-name optipng \
-  --handler optipng.sh \
-  --runtime provided.al2 \
-  --memory-size 1792 \
-  --role "arn:aws:iam::${account_id}:role/llama" \
-  --layers "$layer_arn" \
-  --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
-  --timeout 60
+    --function-name optipng \
+    --package-type Image \
+    --code "ImageUri=${repository_url}:latest" \
+    --timeout 60 \
+    --memory-size 1792 \
+    --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
+    --role "arn:aws:iam::${account_id}:role/llama"
+```
+
+### Using a zip file
+
+Alternately, we can use an old-style Lambda layer and zip file to
+package our code. In this approach, we are responsible for packaging
+all of our dependencies. By way of example, we'll just package a small
+shell script for lambda. First, we need to make the Llama runtime
+available as a Lambda layer:
+
+```console
+$ llama_runtime_arn=$(scripts/publish-runtime)
+```
+
+Now we can create a zip file containing our code, and publish the
+function:
+
+```console
+$ zip -o _obj/hello.zip -j doc/hello-llama/hello.sh
+$ aws lambda create-function \
+    --function-name hello \
+    --zip-file fileb://_obj/hello.zip \
+    --runtime provided.al2 \
+    --handler hello.sh \
+    --timeout 60 \
+    --memory-size 512 \
+    --layers "$llama_runtime_arn" \
+    --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
+    --role "arn:aws:iam::${account_id}:role/llama"
+```
+
+And invoke it:
+
+```console
+$ llama invoke hello world
+Hello from Amazon Lambda
+Received args: world
 ```
 
 [parallel]: https://www.gnu.org/software/parallel/
 
-## Cleaning up old objects
+# Cleaning up old objects
 
 Llama uses the S3 bucket as a content-addressable store to move
 objects between your workstation and the Lambda worker

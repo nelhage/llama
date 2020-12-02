@@ -106,6 +106,10 @@ func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec
 	}
 	defer parsed.Cleanup()
 
+	if err := os.MkdirAll(parsed.Root, 0755); err != nil {
+		return nil, err
+	}
+
 	cmd := exec.Cmd{
 		Path: parsed.Exe,
 		Dir:  parsed.Root,
@@ -155,14 +159,24 @@ func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec
 }
 
 func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationSpec) (*ParsedJob, error) {
-	handler := os.Getenv("_HANDLER")
 	root := os.Getenv("LAMBDA_TASK_ROOT")
 
 	var err error
 	job := ParsedJob{
-		Exe:  path.Join(root, handler),
 		Root: root,
-		Args: []string{handler},
+	}
+
+	if len(os.Args) == 1 {
+		// Running in packaged mode, pull our exe from the
+		// environment
+		handler := os.Getenv("_HANDLER")
+		job.Exe = path.Join(root, handler)
+		job.Args = []string{handler}
+	} else {
+		// We're running in a container. We'll have been
+		// passed our command as our own ARGV
+		job.Args = os.Args[1:]
+		job.Exe = os.Args[1]
 	}
 
 	if spec.Stdin != nil {

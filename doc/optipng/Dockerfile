@@ -1,6 +1,8 @@
-FROM amazonlinux:2
-RUN yum -y install optipng zip
-RUN mkdir /optipng
-RUN cp -a /usr/bin/optipng /lib64/libpng* /optipng/
-ADD optipng.sh /optipng/
-RUN zip -j -r -o /optipng.zip /optipng/
+FROM nelhage/llama as llama
+
+FROM debian:stable
+RUN apt-get update && apt-get -y install optipng && apt-get clean
+RUN mkdir /var/task
+COPY --from=llama /llama_runtime /llama_runtime
+ENTRYPOINT ["/llama_runtime"]
+CMD /usr/bin/optipng
