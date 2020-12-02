@@ -25,6 +25,7 @@ type InvokeResult struct {
 
 type ErrorReturn struct {
 	Payload []byte
+	Logs    []byte
 }
 
 func (e *ErrorReturn) Error() string {
@@ -55,13 +56,15 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	if err != nil {
 		return nil, fmt.Errorf("Invoke(): %w", err)
 	}
-	if resp.FunctionError != nil {
-		return nil, &ErrorReturn{resp.Payload}
-	}
-
 	if resp.LogResult != nil {
 		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
 		out.Logs = logs
+	}
+	if resp.FunctionError != nil {
+		return nil, &ErrorReturn{
+			Payload: resp.Payload,
+			Logs:    out.Logs,
+		}
 	}
 
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {

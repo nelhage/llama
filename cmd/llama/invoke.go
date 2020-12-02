@@ -149,6 +149,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		ReturnLogs: c.logs,
 	})
 	if err != nil {
+		if ir, ok := err.(*llama.ErrorReturn); ok {
+			if ir.Logs != nil {
+				fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", ir.Logs)
+			}
+		}
 		log.Fatalf("invoke: %s", err.Error())
 	}
 
