@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -61,7 +62,6 @@ func main() {
 }
 
 type ParsedJob struct {
-	Temp    string
 	Exe     string
 	Root    string
 	Args    []string
@@ -70,37 +70,55 @@ type ParsedJob struct {
 }
 
 func (p *ParsedJob) Cleanup() error {
-	if p.Temp != "" {
-		return os.RemoveAll(p.Temp)
-	}
-	return nil
-}
-
-func (p *ParsedJob) EnsureTemp() (string, error) {
-	if p.Temp == "" {
-		var err error
-		p.Temp, err = ioutil.TempDir("", "llama.*")
-		if err != nil {
-			return "", err
-		}
-	}
-	return p.Temp, nil
+	return os.RemoveAll(p.Root)
 }
 
 func (p *ParsedJob) TempPath(name string) (string, error) {
-	tmp, err := p.EnsureTemp()
-	if err != nil {
-		return "", err
-	}
-	out := path.Join(tmp, name)
+	out := path.Join(p.Root, "tmp", name)
 	if err := os.MkdirAll(path.Dir(out), 0755); err != nil {
 		return "", err
 	}
 	return out, nil
 }
 
+func computeCmdline(argv []string) ([]string, error) {
+	var cmdline []string
+	if len(argv) == 0 {
+		// Running in packaged mode, pull our exe from the
+		// environment
+		cmdline = []string{os.Getenv("_HANDLER")}
+	} else {
+		// We're running in a container. We'll have been
+		// passed our command as our own ARGV
+		if len(argv) == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+			// The Dockerfile used the [CMD "STRING"]
+			// version of CMD, so it is being evaluated by
+			// /bin/sh -c. In order to be able to append
+			// arguments, we need to munge it a bit.
+			cmdline = []string{
+				"/bin/sh",
+				"-c",
+				fmt.Sprintf(`%s "$@"`, argv[2]),
+				strings.SplitN(argv[2], " ", 2)[0],
+			}
+		} else {
+			if exe, err := exec.LookPath(argv[0]); err != nil {
+				return nil, fmt.Errorf("resolving %q: %s", argv[0], err.Error())
+			} else {
+				cmdline = append([]string{exe}, argv[1:]...)
+			}
+		}
+	}
+	return cmdline, nil
+}
+
 func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-	parsed, err := parseJob(ctx, store, job)
+	cmdline, err := computeCmdline(os.Args[1:])
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, err := parseJob(ctx, store, cmdline, job)
 	if err != nil {
 		return nil, err
 	}
@@ -158,25 +176,20 @@ func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec
 	return &resp, nil
 }
 
-func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationSpec) (*ParsedJob, error) {
-	root := os.Getenv("LAMBDA_TASK_ROOT")
+func parseJob(ctx context.Context,
+	store store.Store,
+	cmdline []string,
+	spec *protocol.InvocationSpec) (*ParsedJob, error) {
 
 	var err error
-	job := ParsedJob{
-		Root: root,
+	temp, err := ioutil.TempDir("", "llama.*")
+	if err != nil {
+		return nil, err
 	}
-
-	if len(os.Args) == 1 {
-		// Running in packaged mode, pull our exe from the
-		// environment
-		handler := os.Getenv("_HANDLER")
-		job.Exe = path.Join(root, handler)
-		job.Args = []string{handler}
-	} else {
-		// We're running in a container. We'll have been
-		// passed our command as our own ARGV
-		job.Args = os.Args[1:]
-		job.Exe = os.Args[1]
+	job := ParsedJob{
+		Root: temp,
+		Args: cmdline,
+		Exe:  cmdline[0],
 	}
 
 	if spec.Stdin != nil {
@@ -200,7 +213,7 @@ func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationS
 		var argpath string
 
 		if io.In != nil {
-			argpath, err = job.TempPath(fmt.Sprintf("llama/arg-%d", i))
+			argpath, err = job.TempPath(fmt.Sprintf("arg-%d", i))
 			if err != nil {
 				return nil, err
 			}
@@ -214,7 +227,7 @@ func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationS
 		}
 		if io.Out != nil {
 			if argpath == "" {
-				argpath, err = job.TempPath(fmt.Sprintf("llama/out/%d_%s", i, *io.Out))
+				argpath, err = job.TempPath(fmt.Sprintf("out/%d_%s", i, *io.Out))
 				if err != nil {
 					return nil, err
 				}
@@ -243,10 +256,6 @@ func parseJob(ctx context.Context, store store.Store, spec *protocol.InvocationS
 		if err := ioutil.WriteFile(path, data, mode); err != nil {
 			return nil, err
 		}
-	}
-
-	if job.Temp != "" {
-		job.Root = job.Temp
 	}
 
 	return &job, nil
