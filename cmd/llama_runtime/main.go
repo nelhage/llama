@@ -62,7 +62,6 @@ func main() {
 }
 
 type ParsedJob struct {
-	Exe     string
 	Root    string
 	Args    []string
 	Stdin   []byte
@@ -81,41 +80,35 @@ func (p *ParsedJob) TempPath(name string) (string, error) {
 	return out, nil
 }
 
-func computeCmdline(argv []string) ([]string, error) {
-	var cmdline []string
+func computeCmdline(argv []string) []string {
 	if len(argv) == 0 {
 		// Running in packaged mode, pull our exe from the
 		// environment
-		cmdline = []string{os.Getenv("_HANDLER")}
-	} else {
-		// We're running in a container. We'll have been
-		// passed our command as our own ARGV
-		if len(argv) == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-			// The Dockerfile used the [CMD "STRING"]
-			// version of CMD, so it is being evaluated by
-			// /bin/sh -c. In order to be able to append
-			// arguments, we need to munge it a bit.
-			cmdline = []string{
-				"/bin/sh",
-				"-c",
-				fmt.Sprintf(`%s "$@"`, argv[2]),
-				strings.SplitN(argv[2], " ", 2)[0],
-			}
-		} else {
-			if exe, err := exec.LookPath(argv[0]); err != nil {
-				return nil, fmt.Errorf("resolving %q: %s", argv[0], err.Error())
-			} else {
-				cmdline = append([]string{exe}, argv[1:]...)
-			}
+		return []string{os.Getenv("_HANDLER")}
+	}
+
+	// We're running in a container. We'll have been
+	// passed our command as our own ARGV
+	if len(argv) == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+		// The Dockerfile used the [CMD "STRING"]
+		// version of CMD, so it is being evaluated by
+		// /bin/sh -c. In order to be able to append
+		// arguments, we need to munge it a bit.
+		return []string{
+			"/bin/sh",
+			"-c",
+			fmt.Sprintf(`%s "$@"`, argv[2]),
+			strings.SplitN(argv[2], " ", 2)[0],
 		}
 	}
-	return cmdline, nil
+	return argv
 }
 
 func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-	cmdline, err := computeCmdline(os.Args[1:])
+	cmdline := computeCmdline(os.Args[1:])
+	exe, err := exec.LookPath(cmdline[0])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolving %q: %s", cmdline[0], err.Error())
 	}
 
 	parsed, err := parseJob(ctx, store, cmdline, job)
@@ -129,7 +122,7 @@ func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec
 	}
 
 	cmd := exec.Cmd{
-		Path: parsed.Exe,
+		Path: exe,
 		Dir:  parsed.Root,
 		Args: parsed.Args,
 	}
@@ -189,7 +182,6 @@ func parseJob(ctx context.Context,
 	job := ParsedJob{
 		Root: temp,
 		Args: cmdline,
-		Exe:  cmdline[0],
 	}
 
 	if spec.Stdin != nil {

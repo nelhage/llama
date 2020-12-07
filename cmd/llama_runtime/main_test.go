@@ -8,7 +8,6 @@ import (
 
 func TestComputeCmdline(t *testing.T) {
 	os.Setenv("_HANDLER", "llama-handler")
-	os.Setenv("PATH", "/bin")
 
 	tests := []struct {
 		in  []string
@@ -18,7 +17,7 @@ func TestComputeCmdline(t *testing.T) {
 			[]string{}, []string{"llama-handler"},
 		},
 		{
-			[]string{"sh", "/"}, []string{"/bin/sh", "/"},
+			[]string{"sh", "/"}, []string{"sh", "/"},
 		},
 		{
 			[]string{"/bin/sh", "-c", "echo"},
@@ -31,11 +30,7 @@ func TestComputeCmdline(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := computeCmdline(tc.in)
-		if err != nil {
-			t.Errorf("computeCmdline(%q): %s", tc.in, err.Error())
-			continue
-		}
+		got := computeCmdline(tc.in)
 		if !reflect.DeepEqual(got, tc.out) {
 			t.Errorf("computeCmdline(%q): got %q != %q", tc.in, got, tc.out)
 		}
