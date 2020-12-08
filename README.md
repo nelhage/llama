@@ -172,7 +172,7 @@ $ docker build -t nelhage/llama:latest .
 
 We can use that image as a base image, if we are willing to use an
 Alpine base image. However, we can also just extract the runtime from
-it into our image. The `doc/optipng/Dockerfile` file builds just such
+it into our image. The `images/optipng/Dockerfile` file builds just such
 an image. The key lines there are:
 
 ```dockerfile
@@ -192,7 +192,7 @@ $ aws ecr get-login-password | docker login --username AWS --password-stdin $(di
 
 We're now ready to build and upload our image:
 ```console
-$ docker build -t "${repository_url}:latest" doc/optipng/
+$ docker build -t "${repository_url}:latest" images/optipng/
 $ docker push "${repository_url}:latest"
 ```
 
@@ -226,7 +226,7 @@ Now we can create a zip file containing our code, and publish the
 function:
 
 ```console
-$ zip -o _obj/hello.zip -j doc/hello-llama/hello.sh
+$ zip -o _obj/hello.zip -j images/hello-llama/hello.sh
 $ aws lambda create-function \
     --function-name hello \
     --zip-file fileb://_obj/hello.zip \
