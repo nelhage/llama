@@ -84,9 +84,10 @@ func (f *fileList) Upload(ctx context.Context, store store.Store, files map[stri
 }
 
 type InvokeCommand struct {
-	stdin bool
-	logs  bool
-	files fileList
+	stdin  bool
+	logs   bool
+	files  fileList
+	output fileList
 }
 
 func (*InvokeCommand) Name() string     { return "invoke" }
@@ -101,6 +102,8 @@ func (c *InvokeCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.logs, "logs", false, "Display command invocation logs")
 	flags.Var(&c.files, "f", "Pass a file through to the invocation")
 	flags.Var(&c.files, "file", "Pass a file through to the invocation")
+	flags.Var(&c.output, "o", "Fetch additional output files")
+	flags.Var(&c.output, "output", "Fetch additional output files")
 }
 
 func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -139,6 +142,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		log.Println("preparing arguments: ", err.Error())
 		return subcommands.ExitFailure
 	}
+
+	for _, out := range c.output.files {
+		spec.Outputs = append(spec.Outputs, out.remote)
+	}
+	outputs = append(outputs, c.output.files...)
 
 	svc := lambda.New(global.Session)
 	response, err := llama.Invoke(ctx, svc, &llama.InvokeArgs{
