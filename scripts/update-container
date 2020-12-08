@@ -3,16 +3,9 @@ set -eu
 root=$(readlink -f "$(dirname "$0")/..")
 cd "$root"
 container="$1"
-account_id=$(aws --output text --query Account sts get-caller-identity)
-repository_base="${account_id}.dkr.ecr.us-west-2.amazonaws.com"
-repository_tag="$repository_base/llama:$container"
-
-docker build -t nelhage/llama .
-docker build -t "$repository_tag" "doc/$container"
-if ! docker push "$repository_tag"; then
-    aws ecr get-login-password | docker login --username AWS --password-stdin "$repository_base"
-    docker push "$repository_tag"
-fi
+. scripts/_vars
+scripts/build-container "$container"
+repository_tag="$repository_url:$container"
 status=$(aws --query Configuration.LastUpdateStatus --output text lambda update-function-code \
              --function-name "$container" \
              --image-uri "${repository_tag}")

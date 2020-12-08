@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eu
+root=$(readlink -f "$(dirname "$0")/..")
+cd "$root"
+. scripts/_vars
+container="$1"
+repository_tag="$repository_base/llama:$container"
+
+docker build -t nelhage/llama .
+docker build -t "$repository_tag" "images/$container"
+if ! docker push "$repository_tag"; then
+    aws ecr get-login-password | docker login --username AWS --password-stdin "$repository_base"
+    docker push "$repository_tag"
+fi

@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eu
+root=$(readlink -f "$(dirname "$0")/..")
+cd "$root"
+. scripts/_vars
+container="$1"
+scripts/build-container "$container"
+aws lambda create-function \
+    --function-name "$container" --memory-size 1798 \
+    --role "arn:aws:iam::807717602072:role/llama-executor" \
+    --environment "Variables={LLAMA_OBJECT_STORE=s3://llama-objects/obj}" \
+    --timeout 60 \
+    --package-type Image \
+    --code "ImageUri=${repository_url}:$container"
