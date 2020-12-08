@@ -39,9 +39,9 @@ computation in AWS Lambda:
 
 ```console
 $ time ls -1 *.png | llama xargs -logs -j 151 optipng '{{.I .Line}}' -out '{{.O (printf "optimized/%s" .Line)}}'
-real    0m22.177s
-user    0m2.143s
-sys     0m0.519s
+real    0m16.024s
+user    0m2.013s
+sys     0m0.569s
 ```
 
 We use `llama xargs`, which works a bit like `xargs(1)`, but runs each
@@ -53,7 +53,7 @@ environment and Lambda.
 
 Lambda's CPUs are slower than my desktop and the network operations
 have overhead, and so we don't see anywhere near a full `151/8`
-speedup. However, the additional parallelism still nets us a 2x
+speedup. However, the additional parallelism still nets us a 3x
 improvement in real-time latency. Note also the vastly decreased
 `user` time, demonstrating that the CPU-intensive work has been
 offloaded, freeing up local compute resources for interactive
