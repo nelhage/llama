@@ -21,13 +21,13 @@ import (
 	"github.com/nelhage/llama/store"
 )
 
-type inputFile struct {
-	source string
-	dest   string
+type mappedFile struct {
+	local  string
+	remote string
 }
 
 type fileList struct {
-	files []inputFile
+	files []mappedFile
 }
 
 func (f *fileList) String() string {
@@ -51,7 +51,7 @@ func (f *fileList) Set(v string) error {
 	if path.IsAbs(dest) {
 		return fmt.Errorf("-file: cannot expose file at absolute path: %q", dest)
 	}
-	f.files = append(f.files, inputFile{source, dest})
+	f.files = append(f.files, mappedFile{source, dest})
 	return nil
 }
 
@@ -59,14 +59,14 @@ func (f *fileList) Upload(ctx context.Context, store store.Store, files map[stri
 	var outErr error
 	trace.WithRegion(ctx, "uploadFiles", func() {
 		for _, file := range f.files {
-			data, err := ioutil.ReadFile(file.source)
+			data, err := ioutil.ReadFile(file.local)
 			if err != nil {
-				outErr = fmt.Errorf("reading file %q: %w", file.source, err)
+				outErr = fmt.Errorf("reading file %q: %w", file.local, err)
 				return
 			}
-			st, err := os.Stat(file.source)
+			st, err := os.Stat(file.local)
 			if err != nil {
-				outErr = fmt.Errorf("stat %q: %w", file.source, err)
+				outErr = fmt.Errorf("stat %q: %w", file.local, err)
 				return
 			}
 			blob, err := protocol.NewBlob(ctx, store, data)
@@ -74,7 +74,7 @@ func (f *fileList) Upload(ctx context.Context, store store.Store, files map[stri
 				outErr = err
 				return
 			}
-			files[file.dest] = protocol.File{Blob: *blob, Mode: st.Mode()}
+			files[file.remote] = protocol.File{Blob: *blob, Mode: st.Mode()}
 		}
 	})
 	if outErr != nil {
@@ -131,7 +131,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		}
 	}
 
-	var outputs []inputFile
+	var outputs []mappedFile
 	trace.WithRegion(ctx, "prepareArguments", func() {
 		outputs, err = prepareArgs(ctx, global, &spec, flag.Args()[1:])
 	})
@@ -181,17 +181,17 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
-func fetchOutputs(ctx context.Context, outputs []inputFile, resp *protocol.InvocationResponse) {
+func fetchOutputs(ctx context.Context, outputs []mappedFile, resp *protocol.InvocationResponse) {
 	trace.WithRegion(ctx, "fetchOutputs", func() {
 		global := cli.MustState(ctx)
 		for _, out := range outputs {
-			blob, ok := resp.Outputs[out.dest]
+			blob, ok := resp.Outputs[out.remote]
 			if !ok {
-				log.Printf("Invocation is missing file: %q", out.source)
+				log.Printf("Invocation is missing file: %q", out.local)
 				continue
 			}
-			if err := blob.Fetch(ctx, global.Store, out.source); err != nil {
-				log.Printf("Fetch %q: %s", out.source, err.Error())
+			if err := blob.Fetch(ctx, global.Store, out.local); err != nil {
+				log.Printf("Fetch %q: %s", out.local, err.Error())
 			}
 
 		}
@@ -203,15 +203,15 @@ type ioContext struct {
 	outputs fileList
 }
 
-func (a *ioContext) cleanPath(file string) (inputFile, error) {
+func (a *ioContext) cleanPath(file string) (mappedFile, error) {
 	if path.IsAbs(file) {
-		return inputFile{}, fmt.Errorf("Cannot pass absolute path: %q", file)
+		return mappedFile{}, fmt.Errorf("Cannot pass absolute path: %q", file)
 	}
 	file = path.Clean(file)
 	if strings.HasPrefix(file, "../") {
-		return inputFile{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
+		return mappedFile{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
 	}
-	return inputFile{file, file}, nil
+	return mappedFile{file, file}, nil
 }
 
 func (a *ioContext) Input(file string) (string, error) {
@@ -220,7 +220,7 @@ func (a *ioContext) Input(file string) (string, error) {
 		return "", err
 	}
 	a.files.files = append(a.files.files, mapped)
-	return mapped.dest, nil
+	return mapped.remote, nil
 }
 
 func (a *ioContext) I(file string) (string, error) {
@@ -233,7 +233,7 @@ func (a *ioContext) Output(file string) (string, error) {
 		return "", err
 	}
 	a.outputs.files = append(a.outputs.files, mapped)
-	return mapped.dest, nil
+	return mapped.remote, nil
 }
 
 func (a *ioContext) O(file string) (string, error) {
@@ -247,7 +247,7 @@ func (a *ioContext) InputOutput(file string) (string, error) {
 	}
 	a.files.files = append(a.files.files, mapped)
 	a.outputs.files = append(a.outputs.files, mapped)
-	return mapped.dest, nil
+	return mapped.remote, nil
 }
 
 func (a *ioContext) IO(file string) (string, error) {
@@ -256,7 +256,7 @@ func (a *ioContext) IO(file string) (string, error) {
 
 func prepareArgs(ctx context.Context, global *cli.GlobalState,
 	spec *protocol.InvocationSpec,
-	args []string) ([]inputFile, error) {
+	args []string) ([]mappedFile, error) {
 
 	var ioctx ioContext
 	rootTpl := template.New("<llama>")
@@ -282,7 +282,7 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState,
 	}
 
 	for _, f := range ioctx.outputs.files {
-		spec.Outputs = append(spec.Outputs, f.dest)
+		spec.Outputs = append(spec.Outputs, f.remote)
 	}
 
 	return ioctx.outputs.files, nil

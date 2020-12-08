@@ -226,7 +226,7 @@ func prepareInvocation(ctx context.Context,
 
 	var outputs []string
 	for _, f := range job.TemplateContext.outputs.files {
-		outputs = append(outputs, f.dest)
+		outputs = append(outputs, f.remote)
 	}
 
 	if globalFiles != nil {
