@@ -7,10 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
-	"runtime/trace"
 	"strings"
 	"sync"
 	"text/template"
@@ -20,6 +18,7 @@ import (
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/store"
 )
 
 type XargsCommand struct {
@@ -47,8 +46,9 @@ func (c *XargsCommand) SetFlags(flags *flag.FlagSet) {
 }
 
 type Invocation struct {
-	StrArgs         []string
+	FormattedArgs   []string
 	TemplateContext jobContext
+	Templates       []*template.Template
 	Args            *llama.InvokeArgs
 	OutputPaths     map[string]string
 	Result          *llama.InvokeResult
@@ -58,24 +58,18 @@ type Invocation struct {
 func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 	var err error
-	c.fileMap, err = c.files.Prepare(ctx, global.Store)
-	if err != nil {
-		log.Fatalf("files: %s", err.Error())
+	if len(c.files.files) > 0 {
+		c.fileMap = make(map[string]protocol.File, len(c.files.files))
+		err = c.files.Upload(ctx, global.Store, c.fileMap)
+		if err != nil {
+			log.Fatalf("files: %s", err.Error())
+		}
 	}
 	c.lambda = lambda.New(global.Session)
-
 	c.function = flag.Arg(0)
-	var argTemplates []*template.Template
-	for i, arg := range flag.Args()[1:] {
-		tpl, err := template.New(fmt.Sprintf("arg-%d", i)).Parse(arg)
-		if err != nil {
-			log.Fatalf("template parse error: %q: %s", arg, err.Error())
-		}
-		argTemplates = append(argTemplates, tpl)
-	}
 
 	submit := make(chan *Invocation)
-	go generateJobs(ctx, argTemplates, submit)
+	go generateJobs(ctx, os.Stdin, flag.Args()[1:], submit)
 	results := make(chan *Invocation)
 
 	var wg sync.WaitGroup
@@ -96,7 +90,7 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		if done.Err != nil || done.Result.Response.ExitStatus != 0 {
 			code = subcommands.ExitFailure
 		}
-		displayCmd := append([]string{c.function}, done.StrArgs...)
+		displayCmd := append([]string{c.function}, done.FormattedArgs...)
 		if done.Err == nil && done.Result.Response.ExitStatus == 0 {
 			log.Printf("Done: %v", displayCmd)
 			continue
@@ -130,44 +124,26 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	return code
 }
 
-// The context object paassed to template.Template.Execute for each
-type jobContext struct {
-	I        int
-	Line     string
-	tempPath string
-}
-
-func (j *jobContext) File() (string, error) {
-	if j.tempPath == "" {
-		fh, err := ioutil.TempFile("", "llama.*")
+func prepareTemplates(args []string) ([]*template.Template, error) {
+	var argTemplates []*template.Template
+	for i, arg := range args {
+		tpl, err := template.New(fmt.Sprintf("arg-%d", i)).Parse(arg)
 		if err != nil {
-			return "", err
+			return nil, fmt.Errorf("template parse error: %q: %w", arg, err)
 		}
-
-		_, err = fh.WriteString(j.Line)
-		if err == nil {
-			_, err = fh.Write([]byte{'\n'})
-		}
-		j.tempPath = fh.Name()
-		if err == nil {
-			err = fh.Close()
-		}
-		if err != nil {
-			return "", err
-		}
+		argTemplates = append(argTemplates, tpl)
 	}
-	return j.tempPath, nil
+	return argTemplates, nil
 }
 
-func (j *jobContext) Cleanup() {
-	if j.tempPath != "" {
-		os.Remove(j.tempPath)
+func generateJobs(ctx context.Context, lines io.Reader, args []string, out chan<- *Invocation) {
+	argTemplates, err := prepareTemplates(args)
+	if err != nil {
+		log.Fatal(err)
 	}
-}
 
-func generateJobs(ctx context.Context, templates []*template.Template, out chan<- *Invocation) {
 	defer close(out)
-	read := bufio.NewReader(os.Stdin)
+	read := bufio.NewReader(lines)
 
 	i := -1
 	for {
@@ -182,18 +158,10 @@ func generateJobs(ctx context.Context, templates []*template.Template, out chan<
 		line = strings.TrimRight(line, "\n")
 		job := Invocation{
 			TemplateContext: jobContext{
-				I:    i,
+				Idx:  i,
 				Line: line,
 			},
-		}
-		for _, tpl := range templates {
-			var w bytes.Buffer
-			err := tpl.Execute(&w, &job.TemplateContext)
-			if err != nil {
-				job.Err = err
-				break
-			}
-			job.StrArgs = append(job.StrArgs, w.String())
+			Templates: argTemplates,
 		}
 		out <- &job
 	}
@@ -207,32 +175,95 @@ func (c *XargsCommand) worker(ctx context.Context, jobs <-chan *Invocation, out 
 	}
 }
 
+// The context object passed to template.Template.Execute for each
+// input line
+type jobContext struct {
+	ioContext
+	ExtraFiles map[string][]byte
+	Idx        int
+	Line       string
+}
+
+func (j *jobContext) AsFile(data string) string {
+	if j.ExtraFiles == nil {
+		j.ExtraFiles = make(map[string][]byte)
+	}
+	dest := fmt.Sprintf("llama/tmp.%d", len(j.ExtraFiles))
+	if !strings.HasSuffix(data, "\n") {
+		data = data + "\n"
+	}
+	j.ExtraFiles[dest] = []byte(data)
+	return dest
+}
+
+func prepareInvocation(ctx context.Context,
+	store store.Store,
+	globalFiles map[string]protocol.File,
+	job *Invocation) (*protocol.InvocationSpec, error) {
+	for _, tpl := range job.Templates {
+		var w bytes.Buffer
+		err := tpl.Execute(&w, &job.TemplateContext)
+		if err != nil {
+			return nil, err
+		}
+		job.FormattedArgs = append(job.FormattedArgs, w.String())
+	}
+
+	var files map[string]protocol.File
+	if len(job.TemplateContext.files.files) > 0 || len(job.TemplateContext.ExtraFiles) > 0 {
+		files = make(map[string]protocol.File)
+		if err := job.TemplateContext.files.Upload(ctx, store, files); err != nil {
+			return nil, err
+		}
+		for key, v := range job.TemplateContext.ExtraFiles {
+			blob, err := protocol.NewBlob(ctx, store, v)
+			if err != nil {
+				return nil, err
+			}
+			files[key] = protocol.File{Mode: 0644, Blob: *blob}
+		}
+	}
+
+	var outputs []string
+	for _, f := range job.TemplateContext.outputs.files {
+		outputs = append(outputs, f.dest)
+	}
+
+	if globalFiles != nil {
+		if files == nil {
+			files = globalFiles
+		} else {
+			for k, v := range globalFiles {
+				files[k] = v
+			}
+		}
+	}
+
+	return &protocol.InvocationSpec{
+		Args:    job.FormattedArgs,
+		Files:   files,
+		Outputs: outputs,
+	}, nil
+}
+
 func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *Invocation) {
+	spec, err := prepareInvocation(ctx, global.Store, c.fileMap, job)
+	if err != nil {
+		job.Err = err
+		return
+	}
 	job.Args = &llama.InvokeArgs{
 		Function:   c.function,
 		ReturnLogs: c.logs,
-		Spec: protocol.InvocationSpec{
-			Files: c.fileMap,
-		},
+		Spec:       *spec,
 	}
-	trace.WithRegion(ctx, "prepareArgs", func() {
-		for _, arg := range job.StrArgs {
-			word, err := parseArg(ctx, &job.OutputPaths, arg)
-			if err != nil {
-				job.Err = err
-				return
-			}
-			job.Args.Spec.Args = append(job.Args.Spec.Args, word)
-		}
-	})
-	job.TemplateContext.Cleanup()
+
 	if job.Err != nil {
 		return
 	}
-
 	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
 
 	if job.Err == nil {
-		fetchOutputs(ctx, job.OutputPaths, &job.Result.Response)
+		fetchOutputs(ctx, job.TemplateContext.outputs.files, &job.Result.Response)
 	}
 }

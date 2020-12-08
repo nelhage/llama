@@ -57,15 +57,15 @@ func main() {
 	}
 
 	lambda.StartWithContext(ctx, func(ctx context.Context, req *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-		return runOne(ctx, store, req)
+		cmdline := computeCmdline(os.Args[1:])
+		return runOne(ctx, store, cmdline, req)
 	})
 }
 
 type ParsedJob struct {
-	Root    string
-	Args    []string
-	Stdin   []byte
-	Outputs map[string]string
+	Root  string
+	Args  []string
+	Stdin []byte
 }
 
 func (p *ParsedJob) Cleanup() error {
@@ -104,8 +104,9 @@ func computeCmdline(argv []string) []string {
 	return argv
 }
 
-func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-	cmdline := computeCmdline(os.Args[1:])
+func runOne(ctx context.Context, store store.Store,
+	cmdline []string,
+	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
 	exe, err := exec.LookPath(cmdline[0])
 	if err != nil {
 		return nil, fmt.Errorf("resolving %q: %s", cmdline[0], err.Error())
@@ -151,19 +152,19 @@ func runOne(ctx context.Context, store store.Store, job *protocol.InvocationSpec
 	if err != nil {
 		resp.Stderr = &protocol.Blob{Err: err.Error()}
 	}
-	if parsed.Outputs != nil {
-		resp.Outputs = make(map[string]protocol.Blob, len(parsed.Outputs))
+	if job.Outputs != nil {
+		resp.Outputs = make(map[string]protocol.File, len(job.Outputs))
 	}
-	for out, path := range parsed.Outputs {
-		var blob *protocol.Blob
-		data, err := ioutil.ReadFile(path)
-		if err == nil {
-			blob, err = protocol.NewBlob(ctx, store, data)
-		}
+	for _, out := range job.Outputs {
+		file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
 		if err != nil {
-			blob = &protocol.Blob{Err: err.Error()}
+			file = &protocol.File{
+				Blob: protocol.Blob{
+					Err: err.Error(),
+				},
+			}
 		}
-		resp.Outputs[out] = *blob
+		resp.Outputs[out] = *file
 	}
 
 	return &resp, nil
@@ -190,63 +191,30 @@ func parseJob(ctx context.Context,
 			return nil, err
 		}
 	}
+	job.Args = append(job.Args, spec.Args...)
 
-	for i, arg := range spec.Args {
-		var s string
-		if err := json.Unmarshal(arg, &s); err == nil {
-			job.Args = append(job.Args, s)
-			continue
-		}
-		var io protocol.Arg
-		if err := json.Unmarshal(arg, &io); err != nil {
-			return nil, fmt.Errorf("unable to interpret arg: %q", arg)
-		}
-
-		var argpath string
-
-		if io.In != nil {
-			argpath, err = job.TempPath(fmt.Sprintf("arg-%d", i))
-			if err != nil {
-				return nil, err
-			}
-			data, err := io.In.Read(ctx, store)
-			if err != nil {
-				return nil, err
-			}
-			if err := ioutil.WriteFile(argpath, data, 0600); err != nil {
-				return nil, err
-			}
-		}
-		if io.Out != nil {
-			if argpath == "" {
-				argpath, err = job.TempPath(fmt.Sprintf("out/%d_%s", i, *io.Out))
-				if err != nil {
-					return nil, err
-				}
-			}
-			if job.Outputs == nil {
-				job.Outputs = make(map[string]string)
-			}
-			job.Outputs[*io.Out] = argpath
-		}
-		job.Args = append(job.Args, argpath)
-	}
-	for path, file := range spec.Files {
-		log.Printf("Writing file: %q", path)
+	for p, file := range spec.Files {
 		data, err := file.Read(ctx, store)
 		if err != nil {
 			return nil, err
 		}
-		path, err = job.TempPath(path)
-		if err != nil {
+		dest := path.Join(job.Root, p)
+		if err := os.MkdirAll(path.Dir(dest), 0755); err != nil {
 			return nil, err
 		}
 		mode := file.Mode
 		if mode == 0 {
 			mode = 0644
 		}
-		if err := ioutil.WriteFile(path, data, mode); err != nil {
+		log.Printf("Writing file: %q", dest)
+		if err := ioutil.WriteFile(dest, data, mode); err != nil {
 			return nil, err
+		}
+	}
+
+	for _, f := range spec.Outputs {
+		if err := os.MkdirAll(path.Join(job.Root, path.Dir(f)), 0755); err != nil {
+			return nil, fmt.Errorf("creating output directory for %q: %s", f, err)
 		}
 	}
 

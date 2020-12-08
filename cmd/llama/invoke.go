@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +11,7 @@ import (
 	"path"
 	"runtime/trace"
 	"strings"
+	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
@@ -54,12 +55,8 @@ func (f *fileList) Set(v string) error {
 	return nil
 }
 
-func (f *fileList) Prepare(ctx context.Context, store store.Store) (map[string]protocol.File, error) {
-	if f.files == nil {
-		return nil, nil
-	}
+func (f *fileList) Upload(ctx context.Context, store store.Store, files map[string]protocol.File) error {
 	var outErr error
-	files := make(map[string]protocol.File, len(f.files))
 	trace.WithRegion(ctx, "uploadFiles", func() {
 		for _, file := range f.files {
 			data, err := ioutil.ReadFile(file.source)
@@ -81,9 +78,9 @@ func (f *fileList) Prepare(ctx context.Context, store store.Store) (map[string]p
 		}
 	})
 	if outErr != nil {
-		return nil, outErr
+		return outErr
 	}
-	return files, nil
+	return nil
 }
 
 type InvokeCommand struct {
@@ -126,16 +123,17 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 
 	var err error
 	if len(c.files.files) > 0 {
-		spec.Files, err = c.files.Prepare(ctx, global.Store)
+		spec.Files = make(map[string]protocol.File, len(c.files.files))
+		err = c.files.Upload(ctx, global.Store, spec.Files)
 		if err != nil {
 			log.Println(err.Error())
 			return subcommands.ExitFailure
 		}
 	}
 
-	var outputs map[string]string
+	var outputs []inputFile
 	trace.WithRegion(ctx, "prepareArguments", func() {
-		spec.Args, outputs, err = prepareArgs(ctx, global, flag.Args()[1:])
+		outputs, err = prepareArgs(ctx, global, &spec, flag.Args()[1:])
 	})
 	if err != nil {
 		log.Println("preparing arguments: ", err.Error())
@@ -183,88 +181,109 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
-func parseArg(ctx context.Context, outputs *map[string]string, arg string) (json.RawMessage, error) {
-	global := cli.MustState(ctx)
-	var argSpec interface{} = arg
-	idx := strings.Index(arg, "@")
-	if idx > 0 {
-		pfx := arg[:idx]
-		arg = arg[idx+1:]
-
-		var a protocol.Arg
-		switch pfx {
-		case "i", "io":
-			data, err := ioutil.ReadFile(arg)
-			if err != nil {
-				return nil, fmt.Errorf("Reading file: %q: %w", arg, err)
-
-			}
-			a.In, err = protocol.NewBlob(ctx, global.Store, data)
-			if err != nil {
-				return nil, fmt.Errorf("Writing to store: %q: %w", arg, err)
-			}
-			argSpec = a
-			if pfx == "i" {
-				break
-			}
-			fallthrough
-		case "o":
-			name := path.Base(arg)
-			if *outputs != nil {
-				if _, ok := (*outputs)[name]; ok {
-					name = fmt.Sprintf("%d-%s", len(*outputs), name)
-				}
-			}
-
-			a.Out = &name
-			argSpec = a
-			if *outputs == nil {
-				*outputs = make(map[string]string)
-			}
-			(*outputs)[name] = arg
-		case "raw":
-			argSpec = arg
-		default:
-			return nil, fmt.Errorf("Unrecognize argspec: %s@...", pfx)
-		}
-	}
-	word, err := json.Marshal(argSpec)
-	if err != nil {
-		log.Fatal("marshal: ", err)
-	}
-	return word, nil
-}
-
-func fetchOutputs(ctx context.Context, outputs map[string]string, resp *protocol.InvocationResponse) {
+func fetchOutputs(ctx context.Context, outputs []inputFile, resp *protocol.InvocationResponse) {
 	trace.WithRegion(ctx, "fetchOutputs", func() {
 		global := cli.MustState(ctx)
-		for key, blob := range resp.Outputs {
-			file, ok := outputs[key]
+		for _, out := range outputs {
+			blob, ok := resp.Outputs[out.dest]
 			if !ok {
-				log.Printf("Unexpected output: %q", key)
+				log.Printf("Invocation is missing file: %q", out.source)
 				continue
 			}
-			data, err := blob.Read(ctx, global.Store)
-			if err != nil {
-				log.Printf("reading output %q: %s", key, err.Error())
-				continue
+			if err := blob.Fetch(ctx, global.Store, out.source); err != nil {
+				log.Printf("Fetch %q: %s", out.source, err.Error())
 			}
-			if err := ioutil.WriteFile(file, data, 0644); err != nil {
-				log.Printf("reading output %q: %s", file, err.Error())
-			}
+
 		}
 	})
 }
 
-func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([]json.RawMessage, map[string]string, error) {
-	out := make([]json.RawMessage, len(args))
-	var outputs map[string]string
-	for i, arg := range args {
-		var err error
-		out[i], err = parseArg(ctx, &outputs, arg)
-		if err != nil {
-			return nil, nil, err
-		}
+type ioContext struct {
+	files   fileList
+	outputs fileList
+}
+
+func (a *ioContext) cleanPath(file string) (inputFile, error) {
+	if path.IsAbs(file) {
+		return inputFile{}, fmt.Errorf("Cannot pass absolute path: %q", file)
 	}
-	return out, outputs, nil
+	file = path.Clean(file)
+	if strings.HasPrefix(file, "../") {
+		return inputFile{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
+	}
+	return inputFile{file, file}, nil
+}
+
+func (a *ioContext) Input(file string) (string, error) {
+	mapped, err := a.cleanPath(file)
+	if err != nil {
+		return "", err
+	}
+	a.files.files = append(a.files.files, mapped)
+	return mapped.dest, nil
+}
+
+func (a *ioContext) I(file string) (string, error) {
+	return a.Input(file)
+}
+
+func (a *ioContext) Output(file string) (string, error) {
+	mapped, err := a.cleanPath(file)
+	if err != nil {
+		return "", err
+	}
+	a.outputs.files = append(a.outputs.files, mapped)
+	return mapped.dest, nil
+}
+
+func (a *ioContext) O(file string) (string, error) {
+	return a.Output(file)
+}
+
+func (a *ioContext) InputOutput(file string) (string, error) {
+	mapped, err := a.cleanPath(file)
+	if err != nil {
+		return "", err
+	}
+	a.files.files = append(a.files.files, mapped)
+	a.outputs.files = append(a.outputs.files, mapped)
+	return mapped.dest, nil
+}
+
+func (a *ioContext) IO(file string) (string, error) {
+	return a.InputOutput(file)
+}
+
+func prepareArgs(ctx context.Context, global *cli.GlobalState,
+	spec *protocol.InvocationSpec,
+	args []string) ([]inputFile, error) {
+
+	var ioctx ioContext
+	rootTpl := template.New("<llama>")
+
+	for i, arg := range args {
+		tpl, err := rootTpl.New(fmt.Sprintf("arg-%d", i)).Parse(arg)
+		if err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		err = tpl.Execute(&buf, &ioctx)
+		if err != nil {
+			return nil, err
+		}
+		spec.Args = append(spec.Args, buf.String())
+	}
+
+	if len(ioctx.files.files) > 0 && spec.Files == nil {
+		spec.Files = make(map[string]protocol.File, len(ioctx.files.files))
+	}
+	if err := ioctx.files.Upload(ctx, global.Store, spec.Files); err != nil {
+		return nil, err
+	}
+
+	for _, f := range ioctx.outputs.files {
+		spec.Outputs = append(spec.Outputs, f.dest)
+	}
+
+	return ioctx.outputs.files, nil
 }
