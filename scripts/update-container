@@ -22,7 +22,7 @@ while :; do
         Successful)
             exit 0
             ;;
-        InProgress)
+        None|InProgress)
             ;;
         *)
             echo "Unexpected status: $status" >&2
