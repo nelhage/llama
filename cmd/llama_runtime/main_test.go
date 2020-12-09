@@ -13,36 +13,47 @@ import (
 
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestComputeCmdline(t *testing.T) {
-	os.Setenv("_HANDLER", "llama-handler")
-
 	tests := []struct {
-		in  []string
-		out []string
+		handler string
+		in      []string
+		out     []string
 	}{
 		{
+			"llama-handler",
 			[]string{}, []string{"llama-handler"},
 		},
 		{
+			"llama-handler",
+			[]string{"hi?"}, []string{"llama-handler"},
+		},
+		{
+			"", []string{}, []string{},
+		},
+		{
+			"",
 			[]string{"sh", "/"}, []string{"sh", "/"},
 		},
 		{
+			"",
 			[]string{"/bin/sh", "-c", "echo"},
 			[]string{"/bin/sh", "-c", `echo "$@"`, "echo"},
 		},
 		{
+			"",
 			[]string{"/bin/sh", "-c", "echo", "echo"},
 			[]string{"/bin/sh", "-c", "echo", "echo"},
 		},
 	}
 
 	for _, tc := range tests {
+		os.Setenv("_HANDLER", tc.handler)
 		got := computeCmdline(tc.in)
-		if !reflect.DeepEqual(got, tc.out) {
-			t.Errorf("computeCmdline(%q): got %q != %q", tc.in, got, tc.out)
-		}
+		assert.Equal(t, tc.out, got, "_HANDLER=%s computeCmdline(%q)", tc.handler, tc.in)
 	}
 }
 
@@ -125,4 +136,24 @@ func TestRunOne(t *testing.T) {
 	if c := resp.Outputs["c.txt"]; c.Err == "" {
 		t.Errorf("reading c: expected error, got %#v", c)
 	}
+}
+
+func TestRunOne_NoCmdLine(t *testing.T) {
+	ctx := context.Background()
+	st := store.InMemory()
+
+	spec := protocol.InvocationSpec{
+		Args:    []string{`echo`, `hello`},
+		Files:   nil,
+		Outputs: nil,
+	}
+
+	resp, err := runOne(ctx, st, nil, &spec)
+	if err != nil {
+		t.Fatal("runOne", err)
+	}
+
+	stdout, err := resp.Stdout.Read(ctx, st)
+	require.NoError(t, err)
+	assert.Equal(t, stdout, []byte("hello\n"))
 }

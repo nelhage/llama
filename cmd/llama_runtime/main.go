@@ -81,10 +81,10 @@ func (p *ParsedJob) TempPath(name string) (string, error) {
 }
 
 func computeCmdline(argv []string) []string {
-	if len(argv) == 0 {
+	if handler := os.Getenv("_HANDLER"); handler != "" {
 		// Running in packaged mode, pull our exe from the
 		// environment
-		return []string{os.Getenv("_HANDLER")}
+		return []string{handler}
 	}
 
 	// We're running in a container. We'll have been
@@ -107,10 +107,6 @@ func computeCmdline(argv []string) []string {
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-	exe, err := exec.LookPath(cmdline[0])
-	if err != nil {
-		return nil, fmt.Errorf("resolving %q: %s", cmdline[0], err.Error())
-	}
 
 	parsed, err := parseJob(ctx, store, cmdline, job)
 	if err != nil {
@@ -120,6 +116,13 @@ func runOne(ctx context.Context, store store.Store,
 
 	if err := os.MkdirAll(parsed.Root, 0755); err != nil {
 		return nil, err
+	}
+
+	var exe string
+	exe, err = exec.LookPath(parsed.Args[0])
+
+	if err != nil {
+		return nil, fmt.Errorf("resolving %q: %s", parsed.Args[0], err.Error())
 	}
 
 	cmd := exec.Cmd{
