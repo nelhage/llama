@@ -37,11 +37,16 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 	}
 	defer os.Remove(objfile.Name())
 
+	comp_language := "cpp-output"
+	if comp.Language != "c" {
+		comp_language = comp.Language + "-cpp-output"
+	}
+
 	var compiler exec.Cmd
 	compiler.Path = ccpath
 	compiler.Args = []string{comp.Compiler()}
 	compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-	compiler.Args = append(compiler.Args, "-x", comp.Language, "-o", objfile.Name(), "-")
+	compiler.Args = append(compiler.Args, "-x", comp_language, "-o", objfile.Name(), "-")
 	compiler.Stderr = os.Stderr
 	compiler.Stdin = &preprocessed
 
