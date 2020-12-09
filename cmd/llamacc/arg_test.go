@@ -22,7 +22,7 @@ func TestParseCompile(t *testing.T) {
 				Language:   "c",
 				Input:      "platform/linux/linux_ptrace.c",
 				Output:     "platform/linux/linux_ptrace.o",
-				LocalArgs:  []string{"-MD", "-Wall", "-Werror", "-D_GNU_SOURCE", "-g"},
+				LocalArgs:  []string{"-MD", "-Wall", "-Werror", "-D_GNU_SOURCE", "-g", "-MF", "platform/linux/linux_ptrace.d"},
 				RemoteArgs: []string{"-Wall", "-Werror", "-g", "-c"},
 				Flag: Flags{
 					MD: true,
