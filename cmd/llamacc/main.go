@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 )
 
 func runLlamaCC(verbose bool, comp *Compilation) error {
@@ -31,24 +31,36 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 		return err
 	}
 
-	objfile, err := ioutil.TempFile(path.Dir(comp.Output), ".llama.*.o")
-	if err != nil {
-		return fmt.Errorf("tempfile: %w", err)
-	}
-	defer os.Remove(objfile.Name())
-
 	comp_language := "cpp-output"
 	if comp.Language != "c" {
 		comp_language = comp.Language + "-cpp-output"
 	}
 
 	var compiler exec.Cmd
-	compiler.Path = ccpath
-	compiler.Args = []string{comp.Compiler()}
-	compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-	compiler.Args = append(compiler.Args, "-x", comp_language, "-o", objfile.Name(), "-")
-	compiler.Stderr = os.Stderr
-	compiler.Stdin = &preprocessed
+	if os.Getenv("LLAMACC_LOCAL") != "" {
+		compiler.Path = ccpath
+		compiler.Args = []string{comp.Compiler()}
+		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
+		compiler.Args = append(compiler.Args, "-x", comp_language, "-o", comp.Output, "-")
+		compiler.Stderr = os.Stderr
+		compiler.Stdin = &preprocessed
+	} else {
+		var llama string
+		if strings.IndexRune(os.Args[0], '/') >= 0 {
+			llama = path.Join(path.Dir(os.Args[0]), "llama")
+		} else {
+			llama, err = exec.LookPath("llama")
+			if err != nil {
+				return fmt.Errorf("can't find llama executable: %s", err.Error())
+			}
+		}
+		compiler.Path = llama
+		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", "gcc-9_3", comp.Compiler()}
+		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
+		compiler.Args = append(compiler.Args, "-x", comp_language, "-o", comp.Output, "-")
+		compiler.Stderr = os.Stderr
+		compiler.Stdin = &preprocessed
+	}
 
 	if verbose {
 		log.Printf("run %s: %q", comp.Compiler(), compiler.Args)
@@ -57,7 +69,7 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 		return err
 	}
 
-	return os.Rename(objfile.Name(), comp.Output)
+	return nil
 }
 
 func main() {
