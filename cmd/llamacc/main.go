@@ -31,17 +31,12 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 		return err
 	}
 
-	comp_language := "cpp-output"
-	if comp.Language != "c" {
-		comp_language = comp.Language + "-cpp-output"
-	}
-
 	var compiler exec.Cmd
 	if os.Getenv("LLAMACC_LOCAL") != "" {
 		compiler.Path = ccpath
 		compiler.Args = []string{comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		compiler.Args = append(compiler.Args, "-x", comp_language, "-o", comp.Output, "-")
+		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
 		compiler.Stdin = &preprocessed
 	} else {
@@ -57,7 +52,7 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 		compiler.Path = llama
 		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", "gcc-9_3", comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		compiler.Args = append(compiler.Args, "-x", comp_language, "-o", comp.Output, "-")
+		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
 		compiler.Stdin = &preprocessed
 	}
@@ -90,7 +85,12 @@ func main() {
 		log.Printf("[llamacc] compiling locally: %s (%q)", err.Error(), os.Args)
 	}
 
-	cmd := exec.Command(comp.Compiler(), os.Args[1:]...)
+	cc := "gcc"
+	if strings.HasSuffix(os.Args[0], "cxx") || strings.HasSuffix(os.Args[0], "c++") {
+		cc = "g++"
+	}
+
+	cmd := exec.Command(cc, os.Args[1:]...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {

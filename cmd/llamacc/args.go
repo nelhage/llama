@@ -7,13 +7,45 @@ import (
 	"strings"
 )
 
+type Lang string
+
+const (
+	LangC                Lang = "c"
+	LangCxx              Lang = "c++"
+	LangAssembler        Lang = "assembler"
+	LangAssemblerWithCpp Lang = "assembler-with-cpp"
+)
+
+var knownLangs = map[string]Lang{
+	string(LangC):                LangC,
+	string(LangCxx):              LangCxx,
+	string(LangAssembler):        LangAssembler,
+	string(LangAssemblerWithCpp): LangAssemblerWithCpp,
+}
+
+var extLangs = map[string]Lang{
+	".c":   LangC,
+	".cxx": LangCxx,
+	".cc":  LangCxx,
+	".cpp": LangCxx,
+	".s":   LangAssembler,
+	".S":   LangAssemblerWithCpp,
+}
+
+var preprocessedLang = map[Lang]string{
+	LangCxx:              "c++-cpp-output",
+	LangC:                "cpp-output",
+	LangAssemblerWithCpp: "assembler",
+}
+
 type Compilation struct {
-	Language   string
-	Input      string
-	Output     string
-	LocalArgs  []string
-	RemoteArgs []string
-	Flag       Flags
+	Language             Lang
+	PreprocessedLanguage string
+	Input                string
+	Output               string
+	LocalArgs            []string
+	RemoteArgs           []string
+	Flag                 Flags
 }
 
 func (c *Compilation) Compiler() string {
@@ -30,16 +62,10 @@ type Flags struct {
 	MF string
 }
 
-var argExts = map[string]bool{
-	".c":   true,
-	".cxx": true,
-	".cc":  true,
-	".cpp": true,
-}
-
 func smellsLikeInput(arg string) bool {
 	ext := path.Ext(arg)
-	return argExts[ext]
+	_, ok := extLangs[ext]
+	return ok
 
 	/*
 		if fi, err := os.Stat(arg); err != nil || fi.IsDir() {
@@ -100,8 +126,13 @@ var argSpecs = []argSpec{
 		return argAction{err: errors.New("-S given")}
 	}, false},
 	{"-x", func(c *Compilation, arg string) argAction {
-		c.Language = arg
-		return argAction{err: errors.New("-S given")}
+		lang, ok := knownLangs[arg]
+		if ok {
+			c.Language = lang
+		} else {
+			return argAction{err: fmt.Errorf("Unsupported language: %s", arg)}
+		}
+		return argAction{filterRemote: true}
 	}, true},
 	{"-o", func(c *Compilation, arg string) argAction {
 		if c.Output != "" {
@@ -149,14 +180,7 @@ func replaceExt(file string, newExt string) string {
 
 func ParseCompile(argv []string) (Compilation, error) {
 	var out Compilation
-	cmd := argv[0]
 	args := argv[1:]
-
-	if strings.HasSuffix(cmd, "cc") {
-		out.Language = "c"
-	} else if strings.HasSuffix(cmd, "cxx") || strings.HasSuffix(cmd, "c++") {
-		out.Language = "c++"
-	}
 
 	i := 0
 	for i < len(args) {
@@ -224,6 +248,17 @@ func ParseCompile(argv []string) (Compilation, error) {
 	}
 	if out.Flag.MD && out.Flag.MF == "" {
 		out.LocalArgs = append(out.LocalArgs, "-MF", replaceExt(out.Output, ".d"))
+	}
+	if out.Language == "" {
+		lang, ok := extLangs[path.Ext(out.Input)]
+		if !ok {
+			return out, fmt.Errorf("Unsupported extension: %s", out.Input)
+		}
+		out.Language = lang
+	}
+	out.PreprocessedLanguage = preprocessedLang[out.Language]
+	if out.PreprocessedLanguage == "" {
+		return out, fmt.Errorf("Don't know what happens when we preprocess %s", out.Language)
 	}
 
 	return out, nil
