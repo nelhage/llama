@@ -1,3 +1,5 @@
+// +build llama.runtime
+
 package main
 
 import (
