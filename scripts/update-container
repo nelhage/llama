@@ -22,6 +22,6 @@ while :; do
             echo "Unexpected status: $status" >&2
             exit 1
     esac
-    status=$(aws --query Configuration.LastUpdateStatus --output text lambda get-function --function-name optipng)
+    status=$(aws --query Configuration.LastUpdateStatus --output text lambda get-function --function-name "$container")
     sleep 1
 done
