@@ -110,6 +110,33 @@ var argSpecs = []argSpec{
 		c.Output = arg
 		return argAction{filterRemote: true, filterLocal: true}
 	}, true},
+	{"-I", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-isystem", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-iquote", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-idirafter", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-iprefix", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-iwithprefixbefore", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-iwithprefix", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-isysroot", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
+	{"-nostdinc", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
 }
 
 func replaceExt(file string, newExt string) string {
