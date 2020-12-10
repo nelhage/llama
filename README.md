@@ -186,14 +186,14 @@ In order to deploy a Lambda based on that image, though, we're going
 to need an ECR repository. Let's create and configure one:
 
 ```console
-$ repository_url=$(aws --output text --query repository.repositoryUri ecr create-repository --repository-name optipng)
+$ repository_url=$(aws --output text --query repository.repositoryUri ecr create-repository --repository-name llama)
 $ aws ecr get-login-password | docker login --username AWS --password-stdin $(dirname "$repository_url")
 ```
 
 We're now ready to build and upload our image:
 ```console
-$ docker build -t "${repository_url}:latest" images/optipng/
-$ docker push "${repository_url}:latest"
+$ docker build -t "${repository_url}:optipng" images/optipng/
+$ docker push "${repository_url}:optipng"
 ```
 
 We're now ready to create our function:
@@ -203,7 +203,7 @@ $ account_id=$(aws --output text --query Account sts get-caller-identity)
 $ aws lambda create-function \
     --function-name optipng \
     --package-type Image \
-    --code "ImageUri=${repository_url}:latest" \
+    --code "ImageUri=${repository_url}:optipng" \
     --timeout 60 \
     --memory-size 1792 \
     --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
