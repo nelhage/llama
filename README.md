@@ -38,7 +38,7 @@ setup in a later section), we can use `llama` to run the same
 computation in AWS Lambda:
 
 ```console
-$ time ls -1 *.png | llama xargs -logs -j 151 optipng '{{.I .Line}}' -out '{{.O (printf "optimized/%s" .Line)}}'
+$ time ls -1 *.png | llama xargs -logs -j 151 optipng optipng '{{.I .Line}}' -out '{{.O (printf "optimized/%s" .Line)}}'
 real    0m16.024s
 user    0m2.013s
 sys     0m0.569s
@@ -136,12 +136,12 @@ $ aws iam put-role-policy \
 (If you're using your own bucket, you'll need to modify the s3 grant
 accordingly)
 
-Finally, we need to build and install the Llama Lambda runtime as a
-Lambda layer. We can do this from this repository using
-`scripts/publish-runtime`:
+Finally, we need an ECR repository to publish Docker images so that
+Lambda can read them. By default, Llama uses the repository named
+`llama` in your account, so let's create that now:
 
 ```console
-$ layer_arn=$(scripts/publish-runtime)
+$ aws ecr create-repository --repository-name llama
 ```
 
 ## Packaging functions
@@ -151,63 +151,37 @@ however, we're ready to package code into Lambda functions for use
 with `llama`. We'll follow these steps for each binary we need to run
 using Llama.
 
+Llama supports old-type Lambda code packages, where the code is
+distributed as a zip file, but the easiest way to use Llama is with
+Lambda's new Docker container support. Llama can be seen as a bridge
+between the Lambda API and Docker containers, allowing us to invoke
+arbitrary UNIX command lines within a container.
+
 Llama supports both old-style Lambda code packages, where the code is
 published as a zip file, as well as container images. Container images
 are much more flexible, but require an ECR registry and are a bit
 fiddly. We'll walk through both approaches.
 
-### Using a container image
+### Building and uploading a container image
 
 To run any code in a container using Llama on Lambda, you just need to
 add the Llama runtime to the container, and point the docker
-`ENTRYPOINT` at it.
+`ENTRYPOINT` at it. The `images/optipng/Dockerfile` contains a minimal
+example, used to create the container for the `optipng` demo
+above. It's well-commented and explains the pattern you need to wrap
+an arbitrary image inside of Llama.
 
-The `Dockerfile` in this repository will build the runtime and create
-an image appropriate for use as a base image. Let's build a local
-version to make sure we have the latest code:
-
-```console
-$ docker build -t nelhage/llama:latest .
-```
-
-We can use that image as a base image, if we are willing to use an
-Alpine base image. However, we can also just extract the runtime from
-it into our image. The `images/optipng/Dockerfile` file builds just such
-an image. The key lines there are:
-
-```dockerfile
-FROM nelhage/llama as llama
-[...]
-COPY --from=0 /llama_runtime /llama_runtime
-ENTRYPOINT ["/llama_runtime"]
-```
-
-In order to deploy a Lambda based on that image, though, we're going
-to need an ECR repository. Let's create and configure one:
+We can build that `optipng` container and publish it as a Lambda
+function using `scripts/new-function` in this repository:
 
 ```console
-$ repository_url=$(aws --output text --query repository.repositoryUri ecr create-repository --repository-name llama)
-$ aws ecr get-login-password | docker login --username AWS --password-stdin $(dirname "$repository_url")
+$ scripts/new-function optipng images/optipng
 ```
 
-We're now ready to build and upload our image:
-```console
-$ docker build -t "${repository_url}:optipng" images/optipng/
-$ docker push "${repository_url}:optipng"
-```
-
-We're now ready to create our function:
+We're now ready to `llama invoke optipng`. Try it out:
 
 ```console
-$ account_id=$(aws --output text --query Account sts get-caller-identity)
-$ aws lambda create-function \
-    --function-name optipng \
-    --package-type Image \
-    --code "ImageUri=${repository_url}:optipng" \
-    --timeout 60 \
-    --memory-size 1792 \
-    --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
-    --role "arn:aws:iam::${account_id}:role/llama"
+$ llama invoke optipng optipng --help
 ```
 
 ### Using a zip file
