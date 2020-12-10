@@ -65,6 +65,21 @@ allocates a full vCPU to the process. That comes out to about 1254400
 MB-seconds of usage, or about $0.017 assuming I'm already out of the
 Lambda free tier.
 
+## `llamacc`
+
+Llama also includes a compiler frontend, `llamacc`, which is a drop-in
+replacement for GCC (or clang), but which outsources the actual
+compilation to Amazon Lambda. Coupled with a parallel build process
+(e.g. `make -j`), it can speed up compiles versus local builds,
+especially on laptops without many cores.
+
+On my Google Pixelbook, with 2 cores and 4 threads, using `llamacc`
+and `make -j24` cuts the time to build
+[boringssl](https://github.com/google/boringssl) in half compared to local compilation.
+
+`llamacc` is a work in progress and I hope for greater speedups with
+some additional work.
+
 # Configuring llama
 
 Llama requires a few resources to be configured in AWS in order to
