@@ -3,7 +3,6 @@ package s3store
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"golang.org/x/crypto/blake2b"
 )
 
 type Store struct {
@@ -38,8 +38,8 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 }
 
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
-	sha := sha256.Sum256(obj)
-	id := hex.EncodeToString(sha[:])
+	csum := blake2b.Sum256(obj)
+	id := hex.EncodeToString(csum[:])
 	key := aws.String(path.Join(s.url.Path, id))
 	_, err := s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: &s.url.Host,
@@ -78,10 +78,10 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	gotSha := sha256.Sum256(body)
-	gotId := hex.EncodeToString(gotSha[:])
+	gotSum := blake2b.Sum256(body)
+	gotId := hex.EncodeToString(gotSum[:])
 	if gotId != id {
-		return nil, fmt.Errorf("object store mismatch: got sha=%s expected sha=%s", gotId, id)
+		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
 
 	return body, nil

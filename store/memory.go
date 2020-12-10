@@ -2,9 +2,10 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+
+	"golang.org/x/crypto/blake2b"
 )
 
 type inMemory struct {
@@ -12,7 +13,7 @@ type inMemory struct {
 }
 
 func (s *inMemory) Store(ctx context.Context, obj []byte) (string, error) {
-	sha := sha256.Sum256(obj)
+	sha := blake2b.Sum256(obj)
 	id := hex.EncodeToString(sha[:])
 	s.objects[id] = append([]byte(nil), obj...)
 	return id, nil
