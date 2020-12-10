@@ -1,0 +1,18 @@
+#!/bin/bash
+set -eu
+func="$1"
+echo "Sleeping until function is ready..."
+while :; do
+    status=$(aws --query Configuration.LastUpdateStatus --output text lambda get-function --function-name "$func")
+    case "$status" in
+        Successful)
+            exit 0
+            ;;
+        None|InProgress)
+            ;;
+        *)
+            echo "Unexpected status: $status" >&2
+            exit 1
+    esac
+    sleep 1
+done

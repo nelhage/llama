@@ -3,25 +3,11 @@ set -eu
 root=$(readlink -f "$(dirname "$0")/..")
 cd "$root"
 container="$1"
+path="${2-images/$container}"
 . scripts/_vars
-scripts/build-container "$container"
+scripts/build-container "$container" "$path"
 repository_tag="$repository_url:$container"
-status=$(aws --query Configuration.LastUpdateStatus --output text lambda update-function-code \
-             --function-name "$container" \
-             --image-uri "${repository_tag}")
-
-echo "Sleeping until update is complete..."
-while :; do
-    case "$status" in
-        Successful)
-            exit 0
-            ;;
-        None|InProgress)
-            ;;
-        *)
-            echo "Unexpected status: $status" >&2
-            exit 1
-    esac
-    status=$(aws --query Configuration.LastUpdateStatus --output text lambda get-function --function-name "$container")
-    sleep 1
-done
+aws --query Configuration.LastUpdateStatus --output text lambda update-function-code \
+    --function-name "$container" \
+    --image-uri "${repository_tag}" >/dev/null
+scripts/wait-for-function "$container"
