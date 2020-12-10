@@ -184,13 +184,64 @@ We're now ready to `llama invoke optipng`. Try it out:
 $ llama invoke optipng optipng --help
 ```
 
-### Using a zip file
+# llamacc
 
-Alternately, we can use an old-style Lambda layer and zip file to
-package our code. In this approach, we are responsible for packaging
-all of our dependencies. By way of example, we'll just package a small
-shell script for lambda. First, we need to make the Llama runtime
-available as a Lambda layer:
+Llama ships with a `llamac` program that uses `llama` to execute the
+actual compilation inside of a Lambda. You can think of this as a
+[distcc](https://github.com/distcc/distcc) that doesn't require a
+dedicated cluster of your own.
+
+To set it up, you'll need a Lambda function containing an appropriate
+llama-compatible GCC. You can build one using `images/gcc-9_3` in this
+repository, or copy the pattern there if you need a different GCC
+version. Build and upload it like so:
+
+```
+$ scripts/new-function gcc images/gcc-9_3
+```
+
+And now you can use `llamacc` to compile code, just like `gcc`, except
+that the compilation happens in the cloud!
+
+
+```console
+$ cat > main.c
+#include <stdio.h>
+
+int main(void) {
+  printf("Hello, World.\n");
+  return 0;
+}
+$ export LLAMACC_VERBOSE=1; llamacc -c main.c -o main.o && llamacc main.o -o main
+2020/12/10 10:43:16 run cpp: ["gcc" "-E" "-o" "-" "main.c"]
+2020/12/10 10:43:16 run gcc: ["llama" "invoke" "-o" "main.o" "-stdin" "gcc" "gcc" "-c" "-x" "cpp-output" "-o" "main.o" "-"]
+2020/12/10 10:43:17 [llamacc] compiling locally: no supported input detected (["llamacc" "main.o" "-o" "main"])
+```
+
+We use `LLAMACC_VERBOSE` to make `llamacc` show what it's doing. We
+can see that it runs `cpp` locally to preprocess the given source, and
+then invokes `llama` to do the actual compilation in the
+cloud. Finally, it transpaerntly runs the link step locally.
+
+Because `llamacc` uses the classic `distcc` strategy of running the
+preprocessor locally it is somewhat limited in its scalability, but it
+can still get a significant speedup on large projects or on laptops
+with slow CPUs with limited cores.
+
+You can also compile C++ by symlinking `llamac++` to `llamacc`.
+
+# Other notes
+
+## Using a zip file
+
+
+Llama also supports packaging code using an old-style Lambda layer and
+zip file for code. In this approach, we are responsible for packaging
+all of our dependencies.
+
+By way of example, we'll just package a small shell script for
+lambda. First, we need to make the Llama runtime available as a Lambda
+layer:
 
 ```console
 $ llama_runtime_arn=$(scripts/publish-runtime)
@@ -200,6 +251,7 @@ Now we can create a zip file containing our code, and publish the
 function:
 
 ```console
+$ mkdir _obj
 $ zip -o _obj/hello.zip -j images/hello-llama/hello.sh
 $ aws lambda create-function \
     --function-name hello \
