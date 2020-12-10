@@ -49,8 +49,12 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 				return fmt.Errorf("can't find llama executable: %s", err.Error())
 			}
 		}
+		functionName := os.Getenv("LLAMACC_FUNCTION")
+		if functionName == "" {
+			functionName = "gcc"
+		}
 		compiler.Path = llama
-		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", "gcc-9_3", comp.Compiler()}
+		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", functionName, comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
 		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
