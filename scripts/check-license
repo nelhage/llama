@@ -1,0 +1,8 @@
+#!/bin/bash
+files=$(git grep -LE '^// Copyright 2020 Nelson Elhage$' -- '*.go')
+if [ "$files" ]; then
+    echo "The following files are missing licenses:" >&2
+    echo "$files" >&2
+    exit 1
+fi
+echo "All .go files contain license headers."

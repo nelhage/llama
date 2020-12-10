@@ -19,3 +19,6 @@ jobs:
       - name: go test
         run: |
           go test -tags llama.runtime ./...
+      - name: Check license headers
+        run: |
+          ./scripts/check-license
