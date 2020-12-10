@@ -50,6 +50,22 @@ func TestParseCompile(t *testing.T) {
 		},
 		{
 			[]string{
+				"cc", "-c", "hello.c", "-o", "hello.o",
+			},
+			Compilation{
+				Language:             "c",
+				PreprocessedLanguage: "cpp-output",
+				Input:                "hello.c",
+				Output:               "hello.o",
+				RemoteArgs:           []string{"-c"},
+				Flag: Flags{
+					C: true,
+				},
+			},
+			false,
+		},
+		{
+			[]string{
 				"/usr/bin/cc", "-DBORINGSSL_DISPATCH_TEST", "-DBORINGSSL_HAVE_LIBUNWIND", "-DBORINGSSL_IMPLEMENTATION", "-I/home/nelhage/code/boringssl/third_party/googletest/include", "-I/home/nelhage/code/boringssl/crypto/../include", "-Wa,--noexecstack", "-Wa,-g", "-o", "CMakeFiles/crypto.dir/chacha/chacha-x86_64.S.o", "-c", "/home/nelhage/code/boringssl/build/crypto/chacha/chacha-x86_64.S",
 			},
 			Compilation{

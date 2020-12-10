@@ -198,7 +198,7 @@ func ParseCompile(argv []string) (Compilation, error) {
 					flagArg, eat = eatArg(args[i-1:], spec.flag)
 					if eat {
 						i++
-						if i >= len(args) {
+						if i > len(args) {
 							return out, fmt.Errorf("%s: expected arg", spec.flag)
 						}
 					}
