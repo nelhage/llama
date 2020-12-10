@@ -3,7 +3,7 @@ on:
   push:
     branches: master
 
-  name: Continuous integration
+name: Continuous integration
 
 jobs:
   ci:
