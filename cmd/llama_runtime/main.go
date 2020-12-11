@@ -169,9 +169,6 @@ func runOne(ctx context.Context, store store.Store,
 	if err != nil {
 		resp.Stderr = &protocol.Blob{Err: err.Error()}
 	}
-	if job.Outputs != nil {
-		resp.Outputs = make(map[string]protocol.File, len(job.Outputs))
-	}
 	for _, out := range job.Outputs {
 		file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
 		if err != nil {
@@ -181,7 +178,7 @@ func runOne(ctx context.Context, store store.Store,
 				},
 			}
 		}
-		resp.Outputs[out] = *file
+		resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
 	}
 
 	return &resp, nil
@@ -210,12 +207,12 @@ func parseJob(ctx context.Context,
 	}
 	job.Args = append(job.Args, spec.Args...)
 
-	for p, file := range spec.Files {
+	for _, file := range spec.Files {
 		data, err := file.Read(ctx, store)
 		if err != nil {
 			return nil, err
 		}
-		dest := path.Join(job.Root, p)
+		dest := path.Join(job.Root, file.Path)
 		if err := os.MkdirAll(path.Dir(dest), 0755); err != nil {
 			return nil, err
 		}

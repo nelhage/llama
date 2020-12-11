@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/cmd/internal/files"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
@@ -37,12 +38,12 @@ import (
 
 type XargsCommand struct {
 	logs        bool
-	files       fileList
+	files       files.List
 	concurrency int
 
 	lambda   *lambda.Lambda
 	function string
-	fileMap  map[string]protocol.File
+	fileMap  protocol.FileList
 }
 
 func (*XargsCommand) Name() string     { return "xargs" }
@@ -72,9 +73,8 @@ type Invocation struct {
 func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 	var err error
-	if len(c.files.files) > 0 {
-		c.fileMap = make(map[string]protocol.File, len(c.files.files))
-		err = c.files.Upload(ctx, global.Store, c.fileMap)
+	if len(c.files) > 0 {
+		c.fileMap, err = c.files.Upload(ctx, global.Store, c.fileMap)
 		if err != nil {
 			log.Fatalf("files: %s", err.Error())
 		}
@@ -193,26 +193,27 @@ func (c *XargsCommand) worker(ctx context.Context, jobs <-chan *Invocation, out 
 // input line
 type jobContext struct {
 	ioContext
-	ExtraFiles map[string][]byte
-	Idx        int
-	Line       string
+	Idx  int
+	Line string
 }
 
 func (j *jobContext) AsFile(data string) string {
-	if j.ExtraFiles == nil {
-		j.ExtraFiles = make(map[string][]byte)
-	}
-	dest := fmt.Sprintf("llama/tmp.%d", len(j.ExtraFiles))
+	dest := fmt.Sprintf("llama/tmp.%d", len(j.files))
 	if !strings.HasSuffix(data, "\n") {
 		data = data + "\n"
 	}
-	j.ExtraFiles[dest] = []byte(data)
+	j.files = j.files.Append(files.Mapped{
+		Local: files.LocalFile{
+			Bytes: []byte(data),
+		},
+		Remote: dest,
+	})
 	return dest
 }
 
 func prepareInvocation(ctx context.Context,
 	store store.Store,
-	globalFiles map[string]protocol.File,
+	globalFiles protocol.FileList,
 	job *Invocation) (*protocol.InvocationSpec, error) {
 	for _, tpl := range job.Templates {
 		var w bytes.Buffer
@@ -223,39 +224,20 @@ func prepareInvocation(ctx context.Context,
 		job.FormattedArgs = append(job.FormattedArgs, w.String())
 	}
 
-	var files map[string]protocol.File
-	if len(job.TemplateContext.files.files) > 0 || len(job.TemplateContext.ExtraFiles) > 0 {
-		files = make(map[string]protocol.File)
-		if err := job.TemplateContext.files.Upload(ctx, store, files); err != nil {
-			return nil, err
-		}
-		for key, v := range job.TemplateContext.ExtraFiles {
-			blob, err := protocol.NewBlob(ctx, store, v)
-			if err != nil {
-				return nil, err
-			}
-			files[key] = protocol.File{Mode: 0644, Blob: *blob}
-		}
+	var allFiles protocol.FileList
+	allFiles, err := job.TemplateContext.files.Upload(ctx, store, globalFiles)
+	if err != nil {
+		return nil, err
 	}
 
 	var outputs []string
-	for _, f := range job.TemplateContext.outputs.files {
-		outputs = append(outputs, f.remote)
-	}
-
-	if globalFiles != nil {
-		if files == nil {
-			files = globalFiles
-		} else {
-			for k, v := range globalFiles {
-				files[k] = v
-			}
-		}
+	for _, f := range job.TemplateContext.outputs {
+		outputs = append(outputs, f.Remote)
 	}
 
 	return &protocol.InvocationSpec{
 		Args:    job.FormattedArgs,
-		Files:   files,
+		Files:   allFiles,
 		Outputs: outputs,
 	}, nil
 }
@@ -278,6 +260,6 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
 
 	if job.Err == nil {
-		fetchOutputs(ctx, job.TemplateContext.outputs.files, &job.Result.Response)
+		job.Err = job.TemplateContext.outputs.Fetch(ctx, global.Store, job.Result.Response.Outputs)
 	}
 }

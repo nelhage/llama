@@ -85,9 +85,9 @@ func TestParseJob(t *testing.T) {
 	cmdline := []string{"/bin/echo", "Hello"}
 	spec := protocol.InvocationSpec{
 		Args: []string{"World"},
-		Files: map[string]protocol.File{
-			"a.txt":       protocol.File{Blob: *a_txt},
-			"indir/b.txt": protocol.File{Blob: *b_txt},
+		Files: protocol.FileList{
+			{Path: "a.txt", File: protocol.File{Blob: *a_txt}},
+			{Path: "indir/b.txt", File: protocol.File{Blob: *b_txt}},
 		},
 		Outputs: []string{"outdir/c.txt"},
 	}
@@ -128,8 +128,8 @@ func TestRunOne(t *testing.T) {
 	cmdline := []string{"/bin/sh", "-c"}
 	spec := protocol.InvocationSpec{
 		Args: []string{`cat in/a.txt > b.txt; echo World >> b.txt; echo OutPUT; echo STDeRR >&2`},
-		Files: map[string]protocol.File{
-			"in/a.txt": protocol.File{Blob: *a_txt},
+		Files: protocol.FileList{
+			{Path: "in/a.txt", File: protocol.File{Blob: *a_txt}},
 		},
 		Outputs: []string{"b.txt", "c.txt"},
 	}
@@ -139,7 +139,8 @@ func TestRunOne(t *testing.T) {
 		t.Fatal("runOne", err)
 	}
 
-	b_blob := resp.Outputs["b.txt"]
+	b_blob := resp.Outputs[0]
+	assert.Equal(t, "b.txt", b_blob.Path)
 	b_txt, err := b_blob.Read(ctx, st)
 	if err != nil {
 		t.Errorf("Read b.txt: %s", err.Error())
@@ -147,7 +148,7 @@ func TestRunOne(t *testing.T) {
 		t.Errorf("Read b.txt: wrong contents %s", b_txt)
 	}
 
-	if c := resp.Outputs["c.txt"]; c.Err == "" {
+	if c := resp.Outputs[1]; c.Err == "" {
 		t.Errorf("reading c: expected error, got %#v", c)
 	}
 }

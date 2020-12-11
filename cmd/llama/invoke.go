@@ -30,78 +30,16 @@ import (
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/cmd/internal/files"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
-	"github.com/nelhage/llama/store"
 )
-
-type mappedFile struct {
-	local  string
-	remote string
-}
-
-type fileList struct {
-	files []mappedFile
-}
-
-func (f *fileList) String() string {
-	return ""
-}
-
-func (f *fileList) Get() interface{} {
-	return f.files
-}
-
-func (f *fileList) Set(v string) error {
-	idx := strings.IndexRune(v, ':')
-	var source, dest string
-	if idx > 0 {
-		source = v[:idx]
-		dest = v[idx+1:]
-	} else {
-		source = v
-		dest = v
-	}
-	if path.IsAbs(dest) {
-		return fmt.Errorf("-file: cannot expose file at absolute path: %q", dest)
-	}
-	f.files = append(f.files, mappedFile{source, dest})
-	return nil
-}
-
-func (f *fileList) Upload(ctx context.Context, store store.Store, files map[string]protocol.File) error {
-	var outErr error
-	trace.WithRegion(ctx, "uploadFiles", func() {
-		for _, file := range f.files {
-			data, err := ioutil.ReadFile(file.local)
-			if err != nil {
-				outErr = fmt.Errorf("reading file %q: %w", file.local, err)
-				return
-			}
-			st, err := os.Stat(file.local)
-			if err != nil {
-				outErr = fmt.Errorf("stat %q: %w", file.local, err)
-				return
-			}
-			blob, err := protocol.NewBlob(ctx, store, data)
-			if err != nil {
-				outErr = err
-				return
-			}
-			files[file.remote] = protocol.File{Blob: *blob, Mode: st.Mode()}
-		}
-	})
-	if outErr != nil {
-		return outErr
-	}
-	return nil
-}
 
 type InvokeCommand struct {
 	stdin  bool
 	logs   bool
-	files  fileList
-	output fileList
+	files  files.List
+	output files.List
 }
 
 func (*InvokeCommand) Name() string     { return "invoke" }
@@ -139,16 +77,13 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	}
 
 	var err error
-	if len(c.files.files) > 0 {
-		spec.Files = make(map[string]protocol.File, len(c.files.files))
-		err = c.files.Upload(ctx, global.Store, spec.Files)
-		if err != nil {
-			log.Println(err.Error())
-			return subcommands.ExitFailure
-		}
+	spec.Files, err = c.files.Upload(ctx, global.Store, spec.Files)
+	if err != nil {
+		log.Println(err.Error())
+		return subcommands.ExitFailure
 	}
 
-	var outputs []mappedFile
+	var outputs files.List
 	trace.WithRegion(ctx, "prepareArguments", func() {
 		outputs, err = prepareArgs(ctx, global, &spec, flag.Args()[1:])
 	})
@@ -157,10 +92,10 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitFailure
 	}
 
-	for _, out := range c.output.files {
-		spec.Outputs = append(spec.Outputs, out.remote)
+	for _, out := range c.output {
+		spec.Outputs = append(spec.Outputs, out.Remote)
 	}
-	outputs = append(outputs, c.output.files...)
+	outputs = outputs.Append(c.output...)
 
 	svc := lambda.New(global.Session)
 	response, err := llama.Invoke(ctx, svc, &llama.InvokeArgs{
@@ -181,7 +116,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", response.Logs)
 	}
 
-	fetchOutputs(ctx, outputs, &response.Response)
+	outputs.Fetch(ctx, global.Store, response.Response.Outputs)
 
 	if response.Response.Stderr != nil {
 		bytes, err := response.Response.Stderr.Read(ctx, global.Store)
@@ -203,37 +138,20 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
-func fetchOutputs(ctx context.Context, outputs []mappedFile, resp *protocol.InvocationResponse) {
-	trace.WithRegion(ctx, "fetchOutputs", func() {
-		global := cli.MustState(ctx)
-		for _, out := range outputs {
-			blob, ok := resp.Outputs[out.remote]
-			if !ok {
-				log.Printf("Invocation is missing file: %q", out.local)
-				continue
-			}
-			if err := blob.Fetch(ctx, global.Store, out.local); err != nil {
-				log.Printf("Fetch %q: %s", out.local, err.Error())
-			}
-
-		}
-	})
-}
-
 type ioContext struct {
-	files   fileList
-	outputs fileList
+	files   files.List
+	outputs files.List
 }
 
-func (a *ioContext) cleanPath(file string) (mappedFile, error) {
+func (a *ioContext) cleanPath(file string) (files.Mapped, error) {
 	if path.IsAbs(file) {
-		return mappedFile{}, fmt.Errorf("Cannot pass absolute path: %q", file)
+		return files.Mapped{}, fmt.Errorf("Cannot pass absolute path: %q", file)
 	}
 	file = path.Clean(file)
 	if strings.HasPrefix(file, "../") {
-		return mappedFile{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
+		return files.Mapped{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
 	}
-	return mappedFile{file, file}, nil
+	return files.Mapped{Local: files.LocalFile{Path: file}, Remote: file}, nil
 }
 
 func (a *ioContext) Input(file string) (string, error) {
@@ -241,8 +159,8 @@ func (a *ioContext) Input(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.files.files = append(a.files.files, mapped)
-	return mapped.remote, nil
+	a.files = a.files.Append(mapped)
+	return mapped.Remote, nil
 }
 
 func (a *ioContext) I(file string) (string, error) {
@@ -254,8 +172,8 @@ func (a *ioContext) Output(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.outputs.files = append(a.outputs.files, mapped)
-	return mapped.remote, nil
+	a.outputs = a.outputs.Append(mapped)
+	return mapped.Remote, nil
 }
 
 func (a *ioContext) O(file string) (string, error) {
@@ -267,9 +185,9 @@ func (a *ioContext) InputOutput(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.files.files = append(a.files.files, mapped)
-	a.outputs.files = append(a.outputs.files, mapped)
-	return mapped.remote, nil
+	a.files = a.files.Append(mapped)
+	a.outputs = a.outputs.Append(mapped)
+	return mapped.Remote, nil
 }
 
 func (a *ioContext) IO(file string) (string, error) {
@@ -278,7 +196,7 @@ func (a *ioContext) IO(file string) (string, error) {
 
 func prepareArgs(ctx context.Context, global *cli.GlobalState,
 	spec *protocol.InvocationSpec,
-	args []string) ([]mappedFile, error) {
+	args []string) (files.List, error) {
 
 	var ioctx ioContext
 	rootTpl := template.New("<llama>")
@@ -296,16 +214,14 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState,
 		spec.Args = append(spec.Args, buf.String())
 	}
 
-	if len(ioctx.files.files) > 0 && spec.Files == nil {
-		spec.Files = make(map[string]protocol.File, len(ioctx.files.files))
-	}
-	if err := ioctx.files.Upload(ctx, global.Store, spec.Files); err != nil {
+	var err error
+	if spec.Files, err = ioctx.files.Upload(ctx, global.Store, spec.Files); err != nil {
 		return nil, err
 	}
 
-	for _, f := range ioctx.outputs.files {
-		spec.Outputs = append(spec.Outputs, f.remote)
+	for _, f := range ioctx.outputs {
+		spec.Outputs = append(spec.Outputs, f.Remote)
 	}
 
-	return ioctx.outputs.files, nil
+	return ioctx.outputs, nil
 }

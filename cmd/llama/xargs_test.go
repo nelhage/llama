@@ -42,12 +42,12 @@ type expectation struct {
 	Outputs []string
 }
 
-func readFiles(t *testing.T, ctx context.Context, st store.Store, files map[string]protocol.File) map[string][]byte {
+func readFiles(t *testing.T, ctx context.Context, st store.Store, files protocol.FileList) map[string][]byte {
 	gotFiles := make(map[string][]byte)
-	for k, f := range files {
+	for _, f := range files {
 		data, err := f.Read(ctx, st)
 		must(t, err)
-		gotFiles[k] = data
+		gotFiles[f.Path] = data
 	}
 	return gotFiles
 }
@@ -61,7 +61,7 @@ func assertSpec(t *testing.T, ctx context.Context, st store.Store, name string, 
 
 func generateAndPrepare(
 	t *testing.T, ctx context.Context, st store.Store,
-	files map[string]protocol.File,
+	files protocol.FileList,
 	input string, args []string) []*protocol.InvocationSpec {
 	read := strings.NewReader(input)
 	jobs := make(chan *Invocation)
@@ -145,8 +145,8 @@ func TestPrepareInvocation_Files(t *testing.T) {
 
 	blob, err := protocol.NewBlob(ctx, st, []byte(fileContents))
 	must(t, err)
-	files := map[string]protocol.File{
-		"file.txt": {Blob: *blob, Mode: 0644},
+	files := protocol.FileList{
+		{Path: "file.txt", File: protocol.File{Blob: *blob, Mode: 0644}},
 	}
 
 	specs := generateAndPrepare(t, ctx, st, files, "line\n", []string{"echo"})

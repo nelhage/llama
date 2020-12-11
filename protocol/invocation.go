@@ -14,16 +14,22 @@
 
 package protocol
 
+type FileAndPath struct {
+	File
+	Path string `json:"p"`
+}
+type FileList []FileAndPath
+
 type InvocationSpec struct {
-	Args    []string        `json:"args"`
-	Stdin   *Blob           `json:"stdin,omitempty"`
-	Files   map[string]File `json:"files,omitempty"`
-	Outputs []string        `json:"outputs,emitempty"`
+	Args    []string `json:"args"`
+	Stdin   *Blob    `json:"stdin,omitempty"`
+	Files   FileList `json:"files,omitempty"`
+	Outputs []string `json:"outputs,emitempty"`
 }
 
 type InvocationResponse struct {
-	ExitStatus int             `json:"status"`
-	Stdout     *Blob           `json:"stdout,omitempty"`
-	Stderr     *Blob           `json:"stderr,omitempty"`
-	Outputs    map[string]File `json:"outputs,omitempty"`
+	ExitStatus int      `json:"status"`
+	Stdout     *Blob    `json:"stdout,omitempty"`
+	Stderr     *Blob    `json:"stderr,omitempty"`
+	Outputs    FileList `json:"outputs,omitempty"`
 }
