@@ -53,7 +53,7 @@ func (f List) Get() interface{} {
 	return f
 }
 
-func (f List) Set(v string) error {
+func (f *List) Set(v string) error {
 	idx := strings.IndexRune(v, ':')
 	var source, dest string
 	if idx > 0 {
@@ -66,7 +66,7 @@ func (f List) Set(v string) error {
 	if path.IsAbs(dest) {
 		return fmt.Errorf("-file: cannot expose file at absolute path: %q", dest)
 	}
-	f = f.Append(Mapped{Local: LocalFile{Path: source}, Remote: dest})
+	*f = f.Append(Mapped{Local: LocalFile{Path: source}, Remote: dest})
 	return nil
 }
 
