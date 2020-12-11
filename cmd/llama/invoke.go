@@ -22,9 +22,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"path"
 	"runtime/trace"
-	"strings"
 	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/lambda"
@@ -138,67 +136,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	return subcommands.ExitStatus(response.Response.ExitStatus)
 }
 
-type ioContext struct {
-	files   files.List
-	outputs files.List
-}
-
-func (a *ioContext) cleanPath(file string) (files.Mapped, error) {
-	if path.IsAbs(file) {
-		return files.Mapped{}, fmt.Errorf("Cannot pass absolute path: %q", file)
-	}
-	file = path.Clean(file)
-	if strings.HasPrefix(file, "../") {
-		return files.Mapped{}, fmt.Errorf("Cannot pass path outside working directory: %q", file)
-	}
-	return files.Mapped{Local: files.LocalFile{Path: file}, Remote: file}, nil
-}
-
-func (a *ioContext) Input(file string) (string, error) {
-	mapped, err := a.cleanPath(file)
-	if err != nil {
-		return "", err
-	}
-	a.files = a.files.Append(mapped)
-	return mapped.Remote, nil
-}
-
-func (a *ioContext) I(file string) (string, error) {
-	return a.Input(file)
-}
-
-func (a *ioContext) Output(file string) (string, error) {
-	mapped, err := a.cleanPath(file)
-	if err != nil {
-		return "", err
-	}
-	a.outputs = a.outputs.Append(mapped)
-	return mapped.Remote, nil
-}
-
-func (a *ioContext) O(file string) (string, error) {
-	return a.Output(file)
-}
-
-func (a *ioContext) InputOutput(file string) (string, error) {
-	mapped, err := a.cleanPath(file)
-	if err != nil {
-		return "", err
-	}
-	a.files = a.files.Append(mapped)
-	a.outputs = a.outputs.Append(mapped)
-	return mapped.Remote, nil
-}
-
-func (a *ioContext) IO(file string) (string, error) {
-	return a.InputOutput(file)
-}
-
 func prepareArgs(ctx context.Context, global *cli.GlobalState,
 	spec *protocol.InvocationSpec,
 	args []string) (files.List, error) {
 
-	var ioctx ioContext
+	var ioctx files.IOContext
 	rootTpl := template.New("<llama>")
 
 	for i, arg := range args {
@@ -215,13 +157,13 @@ func prepareArgs(ctx context.Context, global *cli.GlobalState,
 	}
 
 	var err error
-	if spec.Files, err = ioctx.files.Upload(ctx, global.Store, spec.Files); err != nil {
+	if spec.Files, err = ioctx.Inputs.Upload(ctx, global.Store, spec.Files); err != nil {
 		return nil, err
 	}
 
-	for _, f := range ioctx.outputs {
+	for _, f := range ioctx.Outputs {
 		spec.Outputs = append(spec.Outputs, f.Remote)
 	}
 
-	return ioctx.outputs, nil
+	return ioctx.Outputs, nil
 }

@@ -192,17 +192,17 @@ func (c *XargsCommand) worker(ctx context.Context, jobs <-chan *Invocation, out 
 // The context object passed to template.Template.Execute for each
 // input line
 type jobContext struct {
-	ioContext
+	files.IOContext
 	Idx  int
 	Line string
 }
 
 func (j *jobContext) AsFile(data string) string {
-	dest := fmt.Sprintf("llama/tmp.%d", len(j.files))
+	dest := fmt.Sprintf("llama/tmp.%d", len(j.Inputs))
 	if !strings.HasSuffix(data, "\n") {
 		data = data + "\n"
 	}
-	j.files = j.files.Append(files.Mapped{
+	j.Inputs = j.Inputs.Append(files.Mapped{
 		Local: files.LocalFile{
 			Bytes: []byte(data),
 		},
@@ -225,13 +225,13 @@ func prepareInvocation(ctx context.Context,
 	}
 
 	var allFiles protocol.FileList
-	allFiles, err := job.TemplateContext.files.Upload(ctx, store, globalFiles)
+	allFiles, err := job.TemplateContext.Inputs.Upload(ctx, store, globalFiles)
 	if err != nil {
 		return nil, err
 	}
 
 	var outputs []string
-	for _, f := range job.TemplateContext.outputs {
+	for _, f := range job.TemplateContext.Outputs {
 		outputs = append(outputs, f.Remote)
 	}
 
@@ -260,6 +260,6 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
 
 	if job.Err == nil {
-		job.Err = job.TemplateContext.outputs.Fetch(ctx, global.Store, job.Result.Response.Outputs)
+		job.Err = job.TemplateContext.Outputs.Fetch(ctx, global.Store, job.Result.Response.Outputs)
 	}
 }
