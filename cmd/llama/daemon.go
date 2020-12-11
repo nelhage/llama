@@ -10,7 +10,8 @@ import (
 )
 
 type DaemonCommand struct {
-	ping bool
+	ping     bool
+	shutdown bool
 }
 
 func (*DaemonCommand) Name() string     { return "daemon" }
@@ -22,6 +23,7 @@ func (*DaemonCommand) Usage() string {
 
 func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.ping, "ping", false, "Check if the server is running")
+	flags.BoolVar(&c.shutdown, "shutdown", false, "Stop the running server")
 }
 
 func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -30,11 +32,24 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		if err != nil {
 			log.Fatalf("Connecting to daemon: %s", err.Error())
 		}
-		_, err = client.Ping(&daemon.PingInput{})
+		_, err = client.Ping(&daemon.PingArgs{})
 		if err != nil {
 			log.Fatalf("Pinging daemon: %s", err.Error())
 		}
 		log.Printf("The daemon is alive!")
+		return subcommands.ExitSuccess
+	}
+
+	if c.shutdown {
+		client, err := daemon.Dial(ctx)
+		if err != nil {
+			log.Fatalf("Connecting to daemon: %s", err.Error())
+		}
+		_, err = client.Shutdown(&daemon.ShutdownArgs{})
+		if err != nil {
+			log.Fatalf("Shutting down daemon: %s", err.Error())
+		}
+		log.Printf("The daemon is exiting.")
 		return subcommands.ExitSuccess
 	}
 
