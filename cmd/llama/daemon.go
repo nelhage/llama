@@ -71,24 +71,7 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		if c.detach {
 			cmd := exec.Command("/proc/self/exe", "daemon", "-start")
 			cmd.SysProcAttr = &syscall.SysProcAttr{
-				Setpgid: true,
-
-				// TODO: We can't clear our CTTY
-				// unless we `setsid`, but if we
-				// `setsid` we can't `setpgid`,
-				// because then we would be moving
-				// "into a process group in a new
-				// session" (setpgid(2)). I believe
-				// this is why UNIX daemons
-				// traditionally double-fork, but I
-				// don't know how to do that in Go.
-
-				// Blocking SIGHUP alleviates the
-				// worst problems with still being
-				// part of the session, at least.
-
-				// Setsid: true,
-				// Noctty: true,
+				Setsid: true,
 			}
 			signal.Ignore(syscall.SIGHUP)
 			if err := cmd.Start(); err != nil {
