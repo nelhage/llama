@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/google/subcommands"
+	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/daemon"
 )
 
@@ -53,7 +54,8 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitSuccess
 	}
 
-	if err := daemon.Start(ctx); err != nil {
+	global := cli.MustState(ctx)
+	if err := daemon.Start(ctx, global.Store, global.Session); err != nil {
 		log.Fatalf("starting daemon: %s", err)
 	}
 

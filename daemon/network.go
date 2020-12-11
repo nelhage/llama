@@ -10,6 +10,10 @@ import (
 	"os"
 	"path"
 	"syscall"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/nelhage/llama/store"
 )
 
 func SocketPath() string {
@@ -24,7 +28,7 @@ func SocketPath() string {
 
 var ErrAlreadyRunning = errors.New("daemon already running")
 
-func Start(ctx context.Context) error {
+func Start(ctx context.Context, store store.Store, sess *session.Session) error {
 	sockPath := SocketPath()
 	if err := os.MkdirAll(path.Dir(sockPath), 0700); err != nil {
 		return err
@@ -56,6 +60,9 @@ func Start(ctx context.Context) error {
 
 	daemon := Daemon{
 		shutdown: cancel,
+		store:    store,
+		session:  sess,
+		lambda:   lambda.New(sess),
 	}
 
 	var httpSrv http.Server

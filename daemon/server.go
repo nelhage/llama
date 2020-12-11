@@ -1,9 +1,18 @@
 package daemon
 
-import "context"
+import (
+	"context"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/nelhage/llama/store"
+)
 
 type Daemon struct {
 	shutdown context.CancelFunc
+	store    store.Store
+	session  *session.Session
+	lambda   *lambda.Lambda
 }
 
 type PingArgs struct{}
