@@ -46,7 +46,7 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 	}
 	return &Store{
 		session: s,
-		s3:      s3.New(s),
+		s3:      s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true)),
 		url:     u,
 	}, nil
 }
