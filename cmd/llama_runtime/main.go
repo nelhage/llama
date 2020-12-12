@@ -132,6 +132,10 @@ func runOne(ctx context.Context, store store.Store,
 		return nil, err
 	}
 
+	if len(parsed.Args) == 0 {
+		return nil, errors.New("No arguments provided")
+	}
+
 	var exe string
 	exe, err = exec.LookPath(parsed.Args[0])
 
