@@ -128,12 +128,12 @@ func (f List) Fetch(ctx context.Context, store store.Store, outputs protocol.Fil
 			if file.Local.Path == "" || file.Local.Bytes != nil {
 				panic("Fetch: local file must be a path")
 			}
-			byPath[file.Local.Path] = file
+			byPath[file.Remote] = file
 		}
 		for _, out := range outputs {
 			mapped, ok := byPath[out.Path]
 			if !ok {
-				outErr = fmt.Errorf("Command return unrequested file: %q", out.Path)
+				outErr = fmt.Errorf("Command returned unrequested file: %q", out.Path)
 				log.Printf(outErr.Error())
 				continue
 			}
@@ -144,4 +144,15 @@ func (f List) Fetch(ctx context.Context, store store.Store, outputs protocol.Fil
 		}
 	})
 	return outErr
+}
+
+func (f List) MakeAbsolute(base string) List {
+	out := make(List, 0, len(f))
+	for _, e := range f {
+		if e.Local.Path != "" {
+			e.Local.Path = path.Join(base, e.Local.Path)
+		}
+		out = append(out, e)
+	}
+	return out
 }
