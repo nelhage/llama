@@ -30,7 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/cmd/internal/files"
+	"github.com/nelhage/llama/files"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"

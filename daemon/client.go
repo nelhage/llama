@@ -21,3 +21,9 @@ func (c *Client) Shutdown(in *ShutdownArgs) (*ShutdownReply, error) {
 	err := c.conn.Call("Daemon.Shutdown", in, &out)
 	return &out, err
 }
+
+func (c *Client) InvokeWithFiles(in *InvokeWithFilesArgs) (*InvokeWithFilesReply, error) {
+	var out InvokeWithFilesReply
+	err := c.conn.Call("Daemon.InvokeWithFiles", in, &out)
+	return &out, err
+}

@@ -25,12 +25,10 @@ import (
 	"runtime/trace"
 	"text/template"
 
-	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/cmd/internal/files"
-	"github.com/nelhage/llama/llama"
-	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/daemon"
+	"github.com/nelhage/llama/files"
 )
 
 type InvokeCommand struct {
@@ -59,7 +57,7 @@ func (c *InvokeCommand) SetFlags(flags *flag.FlagSet) {
 func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	var spec protocol.InvocationSpec
+	var args daemon.InvokeWithFilesArgs
 
 	if c.stdin {
 		stdin, err := ioutil.ReadAll(os.Stdin)
@@ -67,103 +65,81 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			log.Printf("reading stdin: %s", err.Error())
 			return subcommands.ExitFailure
 		}
-		spec.Stdin, err = protocol.NewBlob(ctx, global.Store, stdin)
-		if err != nil {
-			log.Printf("writing to store: %s", err.Error())
-			return subcommands.ExitFailure
-		}
+		args.Stdin = stdin
 	}
 
 	var err error
-	spec.Files, err = c.files.Upload(ctx, global.Store, spec.Files)
-	if err != nil {
-		log.Println(err.Error())
-		return subcommands.ExitFailure
-	}
-
-	var outputs files.List
 	trace.WithRegion(ctx, "prepareArguments", func() {
-		outputs, err = prepareArgs(ctx, global, &spec, flag.Args()[1:])
+		var ioctx files.IOContext
+		args.Args, ioctx, err = prepareArgs(ctx, global, flag.Args()[1:])
+		args.Files = c.files.Append(ioctx.Inputs...)
+		args.Outputs = c.output.Append(ioctx.Outputs...)
 	})
 	if err != nil {
 		log.Println("preparing arguments: ", err.Error())
 		return subcommands.ExitFailure
 	}
 
-	for _, out := range c.output {
-		spec.Outputs = append(spec.Outputs, out.Remote)
-	}
-	outputs = outputs.Append(c.output...)
-
-	svc := lambda.New(global.Session)
-	response, err := llama.Invoke(ctx, svc, &llama.InvokeArgs{
-		Function:   flag.Arg(0),
-		Spec:       spec,
-		ReturnLogs: c.logs,
-	})
+	cl, err := daemon.Dial(ctx)
 	if err != nil {
-		if ir, ok := err.(*llama.ErrorReturn); ok {
-			if ir.Logs != nil {
-				fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", ir.Logs)
-			}
-		}
+		log.Fatalf("connecting to daemon: %s", err.Error())
+	}
+	args.Function = flag.Arg(0)
+	args.ReturnLogs = c.logs
+
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("getcwd: %s", err.Error())
+	}
+	args.Files = args.Files.MakeAbsolute(wd)
+	args.Outputs = args.Outputs.MakeAbsolute(wd)
+
+	response, err := cl.InvokeWithFiles(&args)
+	if err != nil {
 		log.Fatalf("invoke: %s", err.Error())
 	}
-
 	if response.Logs != nil {
 		fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", response.Logs)
 	}
 
-	outputs.Fetch(ctx, global.Store, response.Response.Outputs)
-
-	if response.Response.Stderr != nil {
-		bytes, err := response.Response.Stderr.Read(ctx, global.Store)
-		if err != nil {
-			log.Printf("Reading stderr: %s", err.Error())
-		} else {
-			os.Stderr.Write(bytes)
-		}
+	if response.Stdout != nil {
+		os.Stdout.Write(response.Stdout)
 	}
-	if response.Response.Stdout != nil {
-		bytes, err := response.Response.Stdout.Read(ctx, global.Store)
-		if err != nil {
-			log.Printf("Reading stdout: %s", err.Error())
-		} else {
-			os.Stdout.Write(bytes)
-		}
+	if response.Stderr != nil {
+		os.Stderr.Write(response.Stderr)
 	}
 
-	return subcommands.ExitStatus(response.Response.ExitStatus)
+	if response.InvokeErr != "" {
+		log.Fatalf("invoke: %s", response.InvokeErr)
+	}
+
+	/*		if ir, ok := err.(*llama.ErrorReturn); ok {
+				if ir.Logs != nil {
+					fmt.Fprintf(os.Stderr, "==== invocation logs ====\n%s\n==== end logs ====\n", ir.Logs)
+				}
+			}
+	*/
+
+	return subcommands.ExitStatus(response.ExitStatus)
 }
 
-func prepareArgs(ctx context.Context, global *cli.GlobalState,
-	spec *protocol.InvocationSpec,
-	args []string) (files.List, error) {
-
+func prepareArgs(ctx context.Context, global *cli.GlobalState, args []string) ([]string, files.IOContext, error) {
 	var ioctx files.IOContext
 	rootTpl := template.New("<llama>")
 
+	var outArgs []string
 	for i, arg := range args {
 		tpl, err := rootTpl.New(fmt.Sprintf("arg-%d", i)).Parse(arg)
 		if err != nil {
-			return nil, err
+			return nil, files.IOContext{}, err
 		}
 		var buf bytes.Buffer
 		err = tpl.Execute(&buf, &ioctx)
 		if err != nil {
-			return nil, err
+			return nil, files.IOContext{}, err
 		}
-		spec.Args = append(spec.Args, buf.String())
+		outArgs = append(outArgs, buf.String())
 	}
 
-	var err error
-	if spec.Files, err = ioctx.Inputs.Upload(ctx, global.Store, spec.Files); err != nil {
-		return nil, err
-	}
-
-	for _, f := range ioctx.Outputs {
-		spec.Outputs = append(spec.Outputs, f.Remote)
-	}
-
-	return ioctx.Outputs, nil
+	return outArgs, ioctx, nil
 }
