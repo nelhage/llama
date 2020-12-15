@@ -97,7 +97,7 @@ func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error)
 	if err == nil {
 		return cl, nil
 	}
-	cmd := exec.Command("/proc/self/exe", "daemon", "-autostart", "-path", path)
+	cmd := exec.Command("llama", "daemon", "-autostart", "-path", path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}
@@ -109,6 +109,7 @@ func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error)
 	connected := make(chan *daemon.Client)
 	shutdown := make(chan struct{})
 	go func() {
+		defer close(exitStatus)
 		exitStatus <- cmd.Wait()
 	}()
 	go func() {
@@ -126,12 +127,21 @@ func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error)
 			}
 		}
 	}()
-	select {
-	case cl = <-connected:
-		return cl, nil
-	case err := <-exitStatus:
-		close(shutdown)
-		return nil, fmt.Errorf("Starting server: %s", err.Error())
+	for {
+		select {
+		case cl = <-connected:
+			return cl, nil
+		case err := <-exitStatus:
+			if err == nil {
+				// The autostart exited 0, so someone
+				// else must have raced to autostart.
+				exitStatus = nil
+				break
+			}
+			// Stop the goroutine that's trying to connect
+			close(shutdown)
+			return nil, fmt.Errorf("Starting server: %s", err.Error())
+		}
 	}
 }
 
