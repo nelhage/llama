@@ -3,7 +3,9 @@ package daemon
 import "github.com/nelhage/llama/files"
 
 type PingArgs struct{}
-type PingReply struct{}
+type PingReply struct {
+	ServerPid int
+}
 
 type ShutdownArgs struct{}
 type ShutdownReply struct{}
