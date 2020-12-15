@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/files"
 )
@@ -80,7 +81,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitFailure
 	}
 
-	cl, err := daemon.Dial(ctx, cli.SocketPath())
+	cl, err := server.DialWithAutostart(ctx, cli.SocketPath())
 	if err != nil {
 		log.Fatalf("connecting to daemon: %s", err.Error())
 	}

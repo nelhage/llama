@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"os/exec"
 	"path"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -172,6 +174,49 @@ func Start(ctx context.Context, args *StartArgs) error {
 
 	httpSrv.Shutdown(ctx)
 	return nil
+}
+
+func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error) {
+	cl, err := daemon.Dial(ctx, path)
+	if err == nil {
+		return cl, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "daemon", "-autostart", "-path", path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	exitStatus := make(chan error)
+	connected := make(chan *daemon.Client)
+	shutdown := make(chan struct{})
+	go func() {
+		exitStatus <- cmd.Wait()
+	}()
+	go func() {
+		for {
+			cl, err := daemon.Dial(ctx, path)
+			if err == nil {
+				connected <- cl
+				return
+			}
+			select {
+			case <-shutdown:
+				return
+			case <-time.After(10 * time.Millisecond):
+				// Try again
+			}
+		}
+	}()
+	select {
+	case cl = <-connected:
+		return cl, nil
+	case err := <-exitStatus:
+		close(shutdown)
+		return nil, fmt.Errorf("Starting server: %s", err.Error())
+	}
 }
 
 func waitForIdle(srvCtx context.Context, extend chan struct{}, timeout time.Duration) {
