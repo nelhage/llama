@@ -1,13 +1,19 @@
-package daemon
+package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
 	"path"
+	"syscall"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
-	"github.com/nelhage/llama/files"
+	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
@@ -20,41 +26,18 @@ type Daemon struct {
 	lambda   *lambda.Lambda
 }
 
-type PingArgs struct{}
-type PingReply struct{}
-
-func (d *Daemon) Ping(in PingArgs, reply *PingReply) error {
-	*reply = PingReply{}
+func (d *Daemon) Ping(in daemon.PingArgs, reply *daemon.PingReply) error {
+	*reply = daemon.PingReply{}
 	return nil
 }
 
-type ShutdownArgs struct{}
-type ShutdownReply struct{}
-
-func (d *Daemon) Shutdown(in ShutdownArgs, out *ShutdownReply) error {
+func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) error {
 	d.shutdown()
-	*out = ShutdownReply{}
+	*out = daemon.ShutdownReply{}
 	return nil
 }
 
-type InvokeWithFilesArgs struct {
-	Function   string
-	ReturnLogs bool
-	Args       []string
-	Stdin      []byte
-	Files      files.List
-	Outputs    files.List
-}
-
-type InvokeWithFilesReply struct {
-	InvokeErr  string
-	ExitStatus int
-	Stdout     []byte
-	Stderr     []byte
-	Logs       []byte
-}
-
-func (d *Daemon) InvokeWithFiles(in *InvokeWithFilesArgs, out *InvokeWithFilesReply) error {
+func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
 	ctx := context.Background()
 
 	for _, f := range in.Files {
@@ -106,7 +89,7 @@ func (d *Daemon) InvokeWithFiles(in *InvokeWithFilesArgs, out *InvokeWithFilesRe
 			invokeErr = fetchErr
 		}
 	}
-	*out = InvokeWithFilesReply{
+	*out = daemon.InvokeWithFilesReply{
 		Logs:       repl.Logs,
 		ExitStatus: repl.Response.ExitStatus,
 	}
@@ -122,5 +105,62 @@ func (d *Daemon) InvokeWithFiles(in *InvokeWithFilesArgs, out *InvokeWithFilesRe
 		out.Stderr, _ = repl.Response.Stderr.Read(ctx, d.store)
 	}
 
+	return nil
+}
+
+var ErrAlreadyRunning = errors.New("daemon already running")
+
+type StartArgs struct {
+	Path    string
+	Store   store.Store
+	Session *session.Session
+}
+
+func Start(ctx context.Context, args *StartArgs) error {
+	if err := os.MkdirAll(path.Dir(args.Path), 0700); err != nil {
+		return err
+	}
+	listener, err := net.Listen("unix", args.Path)
+	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
+		var client *daemon.Client
+		// The socket exists. Is someone listening?
+		client, err = daemon.Dial(ctx, args.Path)
+		if err == nil {
+			_, err = client.Ping(&daemon.PingArgs{})
+			if err == nil {
+				return ErrAlreadyRunning
+			}
+			return err
+		}
+		// TODO: be atomic (lockfile?) if multiple clients hit
+		// this path at once.
+		if err := os.Remove(args.Path); err != nil {
+			return err
+		}
+		listener, err = net.Listen("unix", args.Path)
+	}
+	if err != nil {
+		return err
+	}
+
+	srvCtx, cancel := context.WithCancel(ctx)
+
+	daemon := Daemon{
+		shutdown: cancel,
+		store:    args.Store,
+		session:  args.Session,
+		lambda:   lambda.New(args.Session),
+	}
+
+	var httpSrv http.Server
+	var rpcSrv rpc.Server
+	rpcSrv.Register(&daemon)
+	httpSrv.Handler = &rpcSrv
+	go func() {
+		httpSrv.Serve(listener)
+	}()
+	<-srvCtx.Done()
+
+	httpSrv.Shutdown(ctx)
 	return nil
 }

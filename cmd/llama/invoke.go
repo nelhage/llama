@@ -80,7 +80,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitFailure
 	}
 
-	cl, err := daemon.Dial(ctx)
+	cl, err := daemon.Dial(ctx, cli.SocketPath())
 	if err != nil {
 		log.Fatalf("connecting to daemon: %s", err.Error())
 	}
@@ -89,7 +89,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 
 	wd, err := os.Getwd()
 	if err != nil {
-		log.Fatal("getcwd: %s", err.Error())
+		log.Fatalf("getcwd: %s", err.Error())
 	}
 	args.Files = args.Files.MakeAbsolute(wd)
 	args.Outputs = args.Outputs.MakeAbsolute(wd)

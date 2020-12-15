@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
 )
 
@@ -37,7 +38,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 
 func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.ping || c.shutdown {
-		client, err := daemon.Dial(ctx)
+		client, err := daemon.Dial(ctx, cli.SocketPath())
 		defer client.Close()
 		if err != nil {
 			log.Fatalf("Connecting to daemon: %s", err.Error())
@@ -58,7 +59,7 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitSuccess
 	} else if c.start || c.autostart {
 		if c.autostart {
-			client, err := daemon.Dial(ctx)
+			client, err := daemon.Dial(ctx, cli.SocketPath())
 			if err == nil {
 				_, err = client.Ping(&daemon.PingArgs{})
 				client.Close()
@@ -79,7 +80,11 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			}
 		} else {
 			global := cli.MustState(ctx)
-			if err := daemon.Start(ctx, global.Store, global.Session); err != nil {
+			if err := server.Start(ctx, &server.StartArgs{
+				Path:    cli.SocketPath(),
+				Store:   global.Store,
+				Session: global.Session,
+			}); err != nil {
 				log.Fatalf("starting daemon: %s", err)
 			}
 		}
