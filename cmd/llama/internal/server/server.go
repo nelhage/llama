@@ -13,6 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/gofrs/flock"
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
@@ -120,30 +121,28 @@ func Start(ctx context.Context, args *StartArgs) error {
 	if err := os.MkdirAll(path.Dir(args.Path), 0700); err != nil {
 		return err
 	}
-	listener, err := net.Listen("unix", args.Path)
-	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
-		var client *daemon.Client
-		// The socket exists. Is someone listening?
-		client, err = daemon.Dial(ctx, args.Path)
-		if err == nil {
-			_, err = client.Ping(&daemon.PingArgs{})
-			if err == nil {
-				return ErrAlreadyRunning
-			}
-			return err
-		}
-		// TODO: be atomic (lockfile?) if multiple clients hit
-		// this path at once.
-		if err := os.Remove(args.Path); err != nil {
-			return err
-		}
-		listener, err = net.Listen("unix", args.Path)
+
+	lk := flock.New(args.Path + ".lock")
+	ok, err := lk.TryLock()
+	if err != nil {
+		return err
 	}
+	if !ok {
+		return ErrAlreadyRunning
+	}
+	defer lk.Unlock()
+
+	// Unlink the socket if it already exists. We have the
+	// exclusive lock, so we know no one is listening.
+	os.Remove(args.Path)
+	listener, err := net.Listen("unix", args.Path)
+
 	if err != nil {
 		return err
 	}
 
 	srvCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	daemon := Daemon{
 		shutdown: cancel,
