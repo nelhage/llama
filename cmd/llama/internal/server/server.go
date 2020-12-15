@@ -9,7 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"path"
-	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
@@ -112,9 +112,10 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 var ErrAlreadyRunning = errors.New("daemon already running")
 
 type StartArgs struct {
-	Path    string
-	Store   store.Store
-	Session *session.Session
+	Path        string
+	Store       store.Store
+	Session     *session.Session
+	IdleTimeout time.Duration
 }
 
 func Start(ctx context.Context, args *StartArgs) error {
@@ -151,10 +152,19 @@ func Start(ctx context.Context, args *StartArgs) error {
 		lambda:   lambda.New(args.Session),
 	}
 
+	extend := make(chan struct{})
+	go func() {
+		waitForIdle(srvCtx, extend, args.IdleTimeout)
+		cancel()
+	}()
+
 	var httpSrv http.Server
 	var rpcSrv rpc.Server
 	rpcSrv.Register(&daemon)
-	httpSrv.Handler = &rpcSrv
+	httpSrv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		extend <- struct{}{}
+		rpcSrv.ServeHTTP(w, r)
+	})
 	go func() {
 		httpSrv.Serve(listener)
 	}()
@@ -162,4 +172,33 @@ func Start(ctx context.Context, args *StartArgs) error {
 
 	httpSrv.Shutdown(ctx)
 	return nil
+}
+
+func waitForIdle(srvCtx context.Context, extend chan struct{}, timeout time.Duration) {
+	var timer *time.Timer
+	var expire <-chan time.Time
+	if timeout != 0 {
+		timer = time.NewTimer(timeout)
+		expire = timer.C
+	}
+loop:
+	for {
+		select {
+		case <-srvCtx.Done():
+			break loop
+		case <-expire:
+			break loop
+		case <-extend:
+			if timer != nil {
+				if !timer.Stop() {
+					<-timer.C
+				}
+				timer.Reset(timeout)
+				expire = timer.C
+			}
+		}
+	}
+	if timer != nil {
+		timer.Stop()
+	}
 }

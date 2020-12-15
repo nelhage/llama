@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
@@ -19,6 +20,7 @@ type DaemonCommand struct {
 	shutdown         bool
 	start, autostart bool
 	detach           bool
+	idleTimeout      time.Duration
 }
 
 func (*DaemonCommand) Name() string     { return "daemon" }
@@ -34,6 +36,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.start, "start", false, "Start the server")
 	flags.BoolVar(&c.autostart, "autostart", false, "Start the server if it is not already running")
 	flags.BoolVar(&c.detach, "detach", false, "Detach and run the server in the background")
+	flags.DurationVar(&c.idleTimeout, "idle-timeout", 10*time.Minute, "Idle timeout")
 }
 
 func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -70,7 +73,7 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			}
 		}
 		if c.detach {
-			cmd := exec.Command("/proc/self/exe", "daemon", "-start")
+			cmd := exec.Command("/proc/self/exe", "daemon", "-start", "-idle-timeout", c.idleTimeout.String())
 			cmd.SysProcAttr = &syscall.SysProcAttr{
 				Setsid: true,
 			}
@@ -81,9 +84,10 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		} else {
 			global := cli.MustState(ctx)
 			if err := server.Start(ctx, &server.StartArgs{
-				Path:    cli.SocketPath(),
-				Store:   global.Store,
-				Session: global.Session,
+				Path:        cli.SocketPath(),
+				Store:       global.Store,
+				Session:     global.Session,
+				IdleTimeout: c.idleTimeout,
 			}); err != nil {
 				log.Fatalf("starting daemon: %s", err)
 			}
