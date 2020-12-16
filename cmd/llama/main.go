@@ -46,19 +46,29 @@ func main() {
 
 func runLlama(ctx context.Context) int {
 	var state cli.GlobalState
+	var regionOverride string
+	var storeOverride string
 	debugAWS := false
 	var traceFile string
 	var storeConcurrency int
-	flag.StringVar(&state.Region, "region", "", "S3 region for commands")
-	flag.StringVar(&state.ObjectStore, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
+	flag.StringVar(&regionOverride, "region", "", "S3 region for commands")
+	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
 	flag.IntVar(&storeConcurrency, "s3-concurrency", 8, "Maximum concurrent S3 uploads/downloads")
 
 	flag.Parse()
 
-	if state.ObjectStore == "" {
-		state.ObjectStore = os.Getenv("LLAMA_OBJECT_STORE")
+	cfg, err := cli.ReadConfig(cli.ConfigPath())
+	if err != nil {
+		log.Fatalf("reading config file: %s", err.Error())
+	}
+
+	if storeOverride == "" {
+		storeOverride = os.Getenv("LLAMA_OBJECT_STORE")
+	}
+	if storeOverride != "" {
+		cfg.Store = storeOverride
 	}
 	if traceFile != "" {
 		f, err := os.Create(traceFile)
@@ -73,17 +83,18 @@ func runLlama(ctx context.Context) int {
 	ctx, task := trace.NewTask(ctx, "llama")
 	defer task.End()
 
-	var err error
 	trace.WithRegion(ctx, "global-init", func() {
-		cfg := aws.NewConfig()
-		if state.Region != "" {
-			cfg = cfg.WithRegion(state.Region)
+		awscfg := aws.NewConfig()
+		if regionOverride != "" {
+			awscfg = awscfg.WithRegion(regionOverride)
+		} else if cfg.Region != "" {
+			awscfg = awscfg.WithRegion(cfg.Region)
 		}
 		if debugAWS {
-			cfg = cfg.WithLogLevel(aws.LogDebugWithHTTPBody)
+			awscfg = awscfg.WithLogLevel(aws.LogDebugWithHTTPBody)
 		}
-		state.Session = session.Must(session.NewSession(cfg))
-		state.Store, err = s3store.FromSession(state.Session, state.ObjectStore)
+		state.Session = session.Must(session.NewSession(awscfg))
+		state.Store, err = s3store.FromSession(state.Session, cfg.Store)
 		if storeConcurrency > 0 && err == nil {
 			state.Store = store.LimitConcurrency(state.Store, storeConcurrency)
 		}

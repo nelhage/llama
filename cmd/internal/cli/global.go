@@ -22,9 +22,9 @@ import (
 )
 
 type GlobalState struct {
-	Session     *session.Session
-	Region      string
-	ObjectStore string
+	Session *session.Session
+
+	Config *Config
 
 	Store store.Store
 }

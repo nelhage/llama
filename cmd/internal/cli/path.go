@@ -21,6 +21,10 @@ func ConfigDir() string {
 	return path.Join(dir, ".llama")
 }
 
+func ConfigPath() string {
+	return path.Join(ConfigDir(), "llama.json")
+}
+
 func SocketPath() string {
 	return path.Join(ConfigDir(), "llama.sock")
 }
