@@ -15,9 +15,12 @@ jobs:
       - name: go build
         run: |
           go build ./...
+      - name: go install
+        run: |
+          GOBIN=$(pwd)/install go install ./...
       - name: go test
         run: |
-          go test -tags llama.runtime ./...
+          PATH=$PATH:$(pwd)/install go test -tags llama.runtime ./...
       - name: Check license headers
         run: |
           ./scripts/check-license
