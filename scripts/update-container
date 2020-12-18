@@ -7,7 +7,7 @@ path="${2-images/$container}"
 . scripts/_vars
 scripts/build-container "$container" "$path"
 repository_tag="$repository_url:$container"
-aws --query Configuration.LastUpdateStatus --output text lambda update-function-code \
+aws lambda update-function-code \
     --function-name "$container" \
     --image-uri "${repository_tag}" >/dev/null
 scripts/wait-for-function "$container"
