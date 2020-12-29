@@ -122,6 +122,9 @@ var argSpecs = []argSpec{
 		c.Flag.MF = arg
 		return argAction{filterRemote: true}
 	}, true},
+	{"-MT", func(c *Compilation, _ string) argAction {
+		return argAction{filterRemote: true}
+	}, true},
 	{"-D", func(c *Compilation, arg string) argAction {
 		return argAction{filterRemote: true}
 	}, true},
