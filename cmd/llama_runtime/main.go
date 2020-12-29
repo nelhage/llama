@@ -136,11 +136,15 @@ func runOne(ctx context.Context, store store.Store,
 		return nil, errors.New("No arguments provided")
 	}
 
-	var exe string
-	exe, err = exec.LookPath(parsed.Args[0])
+	exe := parsed.Args[0]
+	if strings.ContainsRune(exe, '/') {
+		// Use as-is. Will be interpreted relative to the root
+	} else {
+		exe, err = exec.LookPath(exe)
 
-	if err != nil {
-		return nil, fmt.Errorf("resolving %q: %s", parsed.Args[0], err.Error())
+		if err != nil {
+			return nil, fmt.Errorf("resolving %q: %s", parsed.Args[0], err.Error())
+		}
 	}
 
 	cmd := exec.Cmd{
