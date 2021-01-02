@@ -91,11 +91,13 @@ func smellsLikeInput(arg string) bool {
 	*/
 }
 
-type argAction struct {
-	filterLocal  bool
-	filterRemote bool
-	err          error
-}
+type filterWhere int
+
+const (
+	filterLocal  = 1 << 0
+	filterRemote = 1 << 1
+	filterBoth   = filterLocal | filterRemote
+)
 
 func eatArg(argv []string, flag string) (string, bool) {
 	if argv[0] == flag {
@@ -109,82 +111,85 @@ func eatArg(argv []string, flag string) (string, bool) {
 
 type argSpec struct {
 	flag   string
-	action func(c *Compilation, arg string) argAction
+	action func(c *Compilation, arg string) (filterWhere, error)
 	hasArg bool
 }
 
 var argSpecs = []argSpec{
-	{"-MD", func(c *Compilation, _ string) argAction {
+	{"-MD", func(c *Compilation, _ string) (filterWhere, error) {
 		c.Flag.MD = true
-		return argAction{filterRemote: true}
+		return filterRemote, nil
 	}, false},
-	{"-MF", func(c *Compilation, arg string) argAction {
+	{"-MF", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Flag.MF = arg
-		return argAction{filterRemote: true}
+		return filterRemote, nil
 	}, true},
-	{"-MT", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-MT", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-D", func(c *Compilation, arg string) argAction {
-		return argAction{filterRemote: true}
+	{"-D", func(c *Compilation, arg string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-U", func(c *Compilation, arg string) argAction {
-		return argAction{filterRemote: true}
+	{"-U", func(c *Compilation, arg string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-c", func(c *Compilation, arg string) argAction {
+	{"-c", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Flag.C = true
-		return argAction{filterLocal: true}
+		return filterLocal, nil
 	}, false},
-	{"-E", func(c *Compilation, arg string) argAction {
-		return argAction{err: errors.New("-E given")}
+	{"-E", func(c *Compilation, arg string) (filterWhere, error) {
+		return 0, errors.New("-E given")
 	}, false},
-	{"-S", func(c *Compilation, arg string) argAction {
+	{"-S", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Flag.S = true
-		return argAction{err: errors.New("-S given")}
+		return 0, errors.New("-S given")
 	}, false},
-	{"-x", func(c *Compilation, arg string) argAction {
+	{"-x", func(c *Compilation, arg string) (filterWhere, error) {
 		lang, ok := knownLangs[arg]
 		if ok {
 			c.Language = lang
 		} else {
-			return argAction{err: fmt.Errorf("Unsupported language: %s", arg)}
+			return 0, fmt.Errorf("Unsupported language: %s", arg)
 		}
-		return argAction{filterRemote: true}
+		return filterRemote, nil
 	}, true},
-	{"-o", func(c *Compilation, arg string) argAction {
+	{"-o", func(c *Compilation, arg string) (filterWhere, error) {
 		if c.Output != "" {
-			return argAction{err: fmt.Errorf("multiple outputs: %s, %s", c.Output, arg)}
+			return 0, fmt.Errorf("multiple outputs: %s, %s", c.Output, arg)
 		}
 		c.Output = arg
-		return argAction{filterRemote: true, filterLocal: true}
+		return filterBoth, nil
 	}, true},
-	{"-I", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-I", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-isystem", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-isystem", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-iquote", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-iquote", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-idirafter", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-idirafter", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-iprefix", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-iprefix", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-iwithprefixbefore", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-iwithprefixbefore", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-iwithprefix", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-iwithprefix", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-isysroot", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-isysroot", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
-	{"-nostdinc", func(c *Compilation, _ string) argAction {
-		return argAction{filterRemote: true}
+	{"-include", func(_ *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
 	}, true},
+	{"-nostdinc", func(c *Compilation, _ string) (filterWhere, error) {
+		return filterRemote, nil
+	}, false},
 }
 
 func replaceExt(file string, newExt string) string {
@@ -220,17 +225,17 @@ func ParseCompile(argv []string) (Compilation, error) {
 						}
 					}
 				}
-				act := spec.action(&out, flagArg)
-				if act.err != nil {
-					return out, act.err
+				filter, err := spec.action(&out, flagArg)
+				if err != nil {
+					return out, err
 				}
-				if !act.filterLocal {
+				if (filter & filterLocal) == 0 {
 					out.LocalArgs = append(out.LocalArgs, arg)
 					if eat {
 						out.LocalArgs = append(out.LocalArgs, flagArg)
 					}
 				}
-				if !act.filterRemote {
+				if (filter & filterRemote) == 0 {
 					out.RemoteArgs = append(out.RemoteArgs, arg)
 					if eat {
 						out.RemoteArgs = append(out.RemoteArgs, flagArg)
