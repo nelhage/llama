@@ -114,6 +114,11 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			log.Printf("Command exited with status: %v: %d", displayCmd, done.Result.Response.ExitStatus)
 		} else if done.Err != nil {
 			log.Printf("Invocation failed: %v: %s", displayCmd, done.Err.Error())
+			if ret, ok := done.Err.(*llama.ErrorReturn); ok {
+				if ret.Logs != nil {
+					log.Printf("==== logs ====\n%s\n==== end logs ====\n", ret.Logs)
+				}
+			}
 		}
 		if done.Result == nil {
 			continue
