@@ -121,6 +121,7 @@ func main() {
 	}
 
 	cmd := exec.Command(cc, os.Args[1:]...)
+	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
