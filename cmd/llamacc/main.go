@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -85,9 +86,20 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 	return nil
 }
 
+func checkSupported(comp *Compilation) error {
+	if (comp.Language == LangAssembler || comp.Language == LangAssemblerWithCpp) &&
+		os.Getenv("LLAMACC_REMOTE_ASSEMBLE") == "" {
+		return errors.New("Assembly requested, and LLAMACC_REMOTE_ASSEMBLE unset")
+	}
+	return nil
+}
+
 func main() {
 	verbose := os.Getenv("LLAMACC_VERBOSE") != ""
 	comp, err := ParseCompile(os.Args)
+	if err == nil {
+		err = checkSupported(&comp)
+	}
 	if err == nil {
 		err = runLlamaCC(verbose, &comp)
 		if err != nil {
