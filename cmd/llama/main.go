@@ -23,10 +23,14 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
 )
 
 func main() {
 	subcommands.Register(subcommands.HelpCommand(), "")
+	subcommands.Register(subcommands.FlagsCommand(), "")
+
+	subcommands.Register(&bootstrap.BootstrapCommand{}, "config")
 
 	subcommands.Register(&InvokeCommand{}, "")
 	subcommands.Register(&XargsCommand{}, "")
@@ -34,6 +38,8 @@ func main() {
 
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")
+
+	subcommands.ImportantFlag("region")
 
 	ctx := context.Background()
 	code := runLlama(ctx)
@@ -48,7 +54,7 @@ func runLlama(ctx context.Context) int {
 	debugAWS := false
 	var traceFile string
 	var storeConcurrency int
-	flag.StringVar(&regionOverride, "region", "", "S3 region for commands")
+	flag.StringVar(&regionOverride, "region", "", "AWS region")
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
