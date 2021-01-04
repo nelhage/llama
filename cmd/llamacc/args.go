@@ -200,7 +200,7 @@ func replaceExt(file string, newExt string) string {
 	return file[:len(file)-len(ext)] + newExt
 }
 
-func ParseCompile(argv []string) (Compilation, error) {
+func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 	var out Compilation
 	args := argv[1:]
 

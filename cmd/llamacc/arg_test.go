@@ -100,7 +100,7 @@ func TestParseCompile(t *testing.T) {
 		tc := tc
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
-			got, err := ParseCompile(tc.argv)
+			got, err := ParseCompile(&DefaultConfig, tc.argv)
 			if tc.err {
 				require.Error(t, err)
 			} else {

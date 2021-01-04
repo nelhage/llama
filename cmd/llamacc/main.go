@@ -25,7 +25,7 @@ import (
 	"strings"
 )
 
-func runLlamaCC(verbose bool, comp *Compilation) error {
+func runLlamaCC(cfg *Config, comp *Compilation) error {
 	var err error
 	var preprocessor exec.Cmd
 	ccpath, err := exec.LookPath(comp.Compiler())
@@ -39,7 +39,7 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 	var preprocessed bytes.Buffer
 	preprocessor.Stdout = &preprocessed
 	preprocessor.Stderr = os.Stderr
-	if verbose {
+	if cfg.Verbose {
 		log.Printf("run cpp: %q", preprocessor.Args)
 	}
 	if err := preprocessor.Run(); err != nil {
@@ -47,7 +47,7 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 	}
 
 	var compiler exec.Cmd
-	if os.Getenv("LLAMACC_LOCAL") != "" {
+	if cfg.Local {
 		compiler.Path = ccpath
 		compiler.Args = []string{comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
@@ -64,19 +64,15 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 				return fmt.Errorf("can't find llama executable: %s", err.Error())
 			}
 		}
-		functionName := os.Getenv("LLAMACC_FUNCTION")
-		if functionName == "" {
-			functionName = "gcc"
-		}
 		compiler.Path = llama
-		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", functionName, comp.Compiler()}
+		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", cfg.Function, comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
 		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
 		compiler.Stdin = &preprocessed
 	}
 
-	if verbose {
+	if cfg.Verbose {
 		log.Printf("run %s: %q", comp.Compiler(), compiler.Args)
 	}
 	if err := compiler.Run(); err != nil {
@@ -86,22 +82,22 @@ func runLlamaCC(verbose bool, comp *Compilation) error {
 	return nil
 }
 
-func checkSupported(comp *Compilation) error {
+func checkSupported(cfg *Config, comp *Compilation) error {
 	if (comp.Language == LangAssembler || comp.Language == LangAssemblerWithCpp) &&
-		os.Getenv("LLAMACC_REMOTE_ASSEMBLE") == "" {
+		!cfg.RemoteAssemble {
 		return errors.New("Assembly requested, and LLAMACC_REMOTE_ASSEMBLE unset")
 	}
 	return nil
 }
 
 func main() {
-	verbose := os.Getenv("LLAMACC_VERBOSE") != ""
-	comp, err := ParseCompile(os.Args)
+	cfg := ParseConfig(os.Environ())
+	comp, err := ParseCompile(&cfg, os.Args)
 	if err == nil {
-		err = checkSupported(&comp)
+		err = checkSupported(&cfg, &comp)
 	}
 	if err == nil {
-		err = runLlamaCC(verbose, &comp)
+		err = runLlamaCC(&cfg, &comp)
 		if err != nil {
 			if ex, ok := err.(*exec.ExitError); ok {
 				os.Exit(ex.ExitCode())
@@ -111,7 +107,7 @@ func main() {
 		}
 		os.Exit(0)
 	}
-	if verbose {
+	if cfg.Verbose {
 		log.Printf("[llamacc] compiling locally: %s (%q)", err.Error(), os.Args)
 	}
 
