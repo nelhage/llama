@@ -257,6 +257,7 @@ system. The currently supported options include.
 |`LLAMACC_LOCAL`  | Run the compilation locally. Useful for e.g. `CC=llamacc ./configure` |
 |`LLAMACC_REMOTE_ASSEMBLE`| Assemble `.S` or `.s` files remotely, as well as C/C++. |
 |`LLAMACC_FUNCTION`| Override the name of the lambda function for the compiler|
+|`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
 
 # Other notes
 
