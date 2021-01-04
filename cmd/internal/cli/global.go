@@ -15,37 +15,78 @@
 package cli
 
 import (
-	"context"
+	"log"
+	"sync"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/s3store"
 )
 
 type GlobalState struct {
-	Session *session.Session
+	mu      sync.Mutex
+	session *session.Session
 
 	Config *Config
 
-	Store store.Store
+	store store.Store
 }
 
-type key int
-
-var globalKey key
-
-func WithState(ctx context.Context, state *GlobalState) context.Context {
-	return context.WithValue(ctx, globalKey, state)
+func (g *GlobalState) Session() (*session.Session, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sessionLocked()
 }
 
-func GetState(ctx context.Context) (*GlobalState, bool) {
-	v, ok := ctx.Value(globalKey).(*GlobalState)
-	return v, ok
-}
-
-func MustState(ctx context.Context) *GlobalState {
-	state, ok := GetState(ctx)
-	if !ok {
-		panic("MustState: no CLI state present")
+func (g *GlobalState) sessionLocked() (*session.Session, error) {
+	if g.session != nil {
+		return g.session, nil
 	}
-	return state
+	awscfg := aws.NewConfig()
+	if g.Config.Region != "" {
+		awscfg = awscfg.WithRegion(g.Config.Region)
+	}
+	if g.Config.DebugAWS {
+		awscfg = awscfg.WithLogLevel(aws.LogDebugWithHTTPBody)
+	}
+	var err error
+	g.session, err = session.NewSession(awscfg)
+	return g.session, err
+}
+
+func (g *GlobalState) MustSession() *session.Session {
+	s, err := g.Session()
+	if err != nil {
+		log.Fatalf("llama: unable to initialize aws: %s", err.Error())
+	}
+	return s
+}
+
+func (g *GlobalState) Store() (store.Store, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.store != nil {
+		return g.store, nil
+	}
+	sess, err := g.sessionLocked()
+	if err != nil {
+		return nil, err
+	}
+	g.store, err = s3store.FromSession(sess, g.Config.Store)
+	if err != nil {
+		return nil, err
+	}
+	if g.Config.S3Concurrency > 0 && err == nil {
+		g.store = store.LimitConcurrency(g.store, g.Config.S3Concurrency)
+	}
+	return g.store, nil
+}
+
+func (g *GlobalState) MustStore() store.Store {
+	st, err := g.Store()
+	if err != nil {
+		log.Fatalf("llama: initializing store: %s", err.Error())
+	}
+	return st
 }

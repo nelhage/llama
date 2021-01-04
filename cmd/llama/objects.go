@@ -47,7 +47,7 @@ func (c *StoreCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		return subcommands.ExitFailure
 	}
 
-	id, err := global.Store.Store(ctx, bytes)
+	id, err := global.MustStore().Store(ctx, bytes)
 	if err != nil {
 		log.Printf("storing %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure
@@ -73,7 +73,7 @@ func (c *GetCommand) SetFlags(flags *flag.FlagSet) {
 func (c *GetCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	obj, err := global.Store.Get(ctx, flag.Arg(0))
+	obj, err := global.MustStore().Get(ctx, flag.Arg(0))
 	if err != nil {
 		log.Printf("read %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure

@@ -23,10 +23,12 @@ import (
 )
 
 type Config struct {
+	DebugAWS      bool   `json:"-"`
 	Store         string `json:"object_store"`
 	Region        string `json:"aws_region"`
 	ECRRepository string `json:"ecr_repository"`
 	IAMRole       string `json:"iam_role"`
+	S3Concurrency int    `json:"s3_concurrency"`
 }
 
 func WriteConfig(cfg *Config, configPath string) error {

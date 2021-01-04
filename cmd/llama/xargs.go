@@ -72,14 +72,15 @@ type Invocation struct {
 
 func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
+
 	var err error
 	if len(c.files) > 0 {
-		c.fileMap, err = c.files.Upload(ctx, global.Store, c.fileMap)
+		c.fileMap, err = c.files.Upload(ctx, global.MustStore(), c.fileMap)
 		if err != nil {
 			log.Fatalf("files: %s", err.Error())
 		}
 	}
-	c.lambda = lambda.New(global.Session)
+	c.lambda = lambda.New(global.MustSession())
 	c.function = flag.Arg(0)
 
 	submit := make(chan *Invocation)
@@ -127,13 +128,13 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			log.Printf("==== logs ====\n%s\n==== end logs ====\n", done.Result.Logs)
 		}
 		if done.Result.Response.Stdout != nil {
-			stdout, err := done.Result.Response.Stdout.Read(ctx, global.Store)
+			stdout, err := done.Result.Response.Stdout.Read(ctx, global.MustStore())
 			if err == nil {
 				log.Printf("==== stdout ====\n%s\n==== end stdout ====\n", stdout)
 			}
 		}
 		if done.Result.Response.Stderr != nil {
-			stderr, err := done.Result.Response.Stderr.Read(ctx, global.Store)
+			stderr, err := done.Result.Response.Stderr.Read(ctx, global.MustStore())
 			if err == nil {
 				log.Printf("==== stderr ====\n%s\n==== end stderr ====\n", stderr)
 			}
@@ -248,7 +249,7 @@ func prepareInvocation(ctx context.Context,
 }
 
 func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *Invocation) {
-	spec, err := prepareInvocation(ctx, global.Store, c.fileMap, job)
+	spec, err := prepareInvocation(ctx, global.MustStore(), c.fileMap, job)
 	if err != nil {
 		job.Err = err
 		return
@@ -265,6 +266,6 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
 
 	if job.Err == nil {
-		job.Err = job.TemplateContext.Outputs.Fetch(ctx, global.Store, job.Result.Response.Outputs)
+		job.Err = job.TemplateContext.Outputs.Fetch(ctx, global.MustStore(), job.Result.Response.Outputs)
 	}
 }

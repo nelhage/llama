@@ -21,12 +21,8 @@ import (
 	"os"
 	"runtime/trace"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/store"
-	"github.com/nelhage/llama/store/s3store"
 )
 
 func main() {
@@ -44,8 +40,9 @@ func main() {
 	os.Exit(code)
 }
 
+const defaultStoreConcurrency = 8
+
 func runLlama(ctx context.Context) int {
-	var state cli.GlobalState
 	var regionOverride string
 	var storeOverride string
 	debugAWS := false
@@ -55,7 +52,7 @@ func runLlama(ctx context.Context) int {
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
-	flag.IntVar(&storeConcurrency, "s3-concurrency", 8, "Maximum concurrent S3 uploads/downloads")
+	flag.IntVar(&storeConcurrency, "s3-concurrency", defaultStoreConcurrency, "Maximum concurrent S3 uploads/downloads")
 
 	flag.Parse()
 
@@ -70,6 +67,14 @@ func runLlama(ctx context.Context) int {
 	if storeOverride != "" {
 		cfg.Store = storeOverride
 	}
+	if storeConcurrency != defaultStoreConcurrency || cfg.S3Concurrency == 0 {
+		cfg.S3Concurrency = storeConcurrency
+	}
+	if regionOverride != "" {
+		cfg.Region = regionOverride
+	}
+	cfg.DebugAWS = debugAWS
+
 	if traceFile != "" {
 		f, err := os.Create(traceFile)
 		if err != nil {
@@ -83,24 +88,11 @@ func runLlama(ctx context.Context) int {
 	ctx, task := trace.NewTask(ctx, "llama")
 	defer task.End()
 
-	trace.WithRegion(ctx, "global-init", func() {
-		awscfg := aws.NewConfig()
-		if regionOverride != "" {
-			awscfg = awscfg.WithRegion(regionOverride)
-		} else if cfg.Region != "" {
-			awscfg = awscfg.WithRegion(cfg.Region)
-		}
-		if debugAWS {
-			awscfg = awscfg.WithLogLevel(aws.LogDebugWithHTTPBody)
-		}
-		state.Session = session.Must(session.NewSession(awscfg))
-		state.Store, err = s3store.FromSession(state.Session, cfg.Store)
-		if storeConcurrency > 0 && err == nil {
-			state.Store = store.LimitConcurrency(state.Store, storeConcurrency)
-		}
+	var state cli.GlobalState
+	state.Config = cfg
 
-		ctx = cli.WithState(ctx, &state)
-	})
+	ctx = cli.WithState(ctx, &state)
+
 	if err != nil {
 		log.Fatal(err.Error())
 	}

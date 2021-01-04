@@ -93,8 +93,8 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			global := cli.MustState(ctx)
 			if err := server.Start(ctx, &server.StartArgs{
 				Path:        c.path,
-				Store:       global.Store,
-				Session:     global.Session,
+				Session:     global.MustSession(),
+				Store:       global.MustStore(),
 				IdleTimeout: c.idleTimeout,
 			}); err != nil {
 				if c.autostart && err == server.ErrAlreadyRunning {
