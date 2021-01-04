@@ -245,6 +245,19 @@ with slow CPUs with limited cores.
 
 You can also compile C++ by symlinking `llamac++` to `llamacc`.
 
+## llamacc configuration
+
+`llamacc` takes a number of configuration options from the
+environment, so that they're easy to pass through your build
+system. The currently supported options include.
+
+|Variable|Meaning|
+|--------|-------|
+|`LLAMACC_VERBOSE`| Print commands executed by llamacc|
+|`LLAMACC_LOCAL`  | Run the compilation locally. Useful for e.g. `CC=llamacc ./configure` |
+|`LLAMACC_REMOTE_ASSEMBLE`| Assemble `.S` or `.s` files remotely, as well as C/C++. |
+|`LLAMACC_FUNCTION`| Override the name of the lambda function for the compiler|
+
 # Other notes
 
 ## Using a zip file
