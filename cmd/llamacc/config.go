@@ -23,6 +23,7 @@ type Config struct {
 	Verbose        bool
 	Local          bool
 	RemoteAssemble bool
+	FullPreprocess bool
 	Function       string
 }
 
@@ -51,6 +52,8 @@ func ParseConfig(env []string) Config {
 			out.RemoteAssemble = val != ""
 		case "FUNCTION":
 			out.Function = val
+		case "FULL_PREPROCESS":
+			out.FullPreprocess = val != ""
 		default:
 			log.Printf("llamacc: unknown env var: %s", ev)
 		}

@@ -35,7 +35,9 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 	preprocessor.Path = ccpath
 	preprocessor.Args = []string{comp.Compiler()}
 	preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
-	preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+	if !cfg.FullPreprocess {
+		preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+	}
 	preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
 	var preprocessed bytes.Buffer
 	preprocessor.Stdout = &preprocessed
@@ -52,7 +54,9 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		compiler.Path = ccpath
 		compiler.Args = []string{comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
+		if !cfg.FullPreprocess {
+			compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
+		}
 		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
 		compiler.Stdin = &preprocessed
@@ -69,7 +73,9 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		compiler.Path = llama
 		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", cfg.Function, comp.Compiler()}
 		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
+		if !cfg.FullPreprocess {
+			compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
+		}
 		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 		compiler.Stderr = os.Stderr
 		compiler.Stdin = &preprocessed
