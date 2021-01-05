@@ -110,6 +110,7 @@ func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ..
 	}
 
 	log.Printf("Stack created. Polling until completion...")
+	var stack *cloudformation.Stack
 poll:
 	for {
 		describe, err := cf.DescribeStacks(&cloudformation.DescribeStacksInput{
@@ -119,7 +120,7 @@ poll:
 			log.Printf("Error describing stack: %s", err.Error())
 			continue
 		}
-		stack := describe.Stacks[0]
+		stack = describe.Stacks[0]
 		switch *stack.StackStatus {
 		case cloudformation.StackStatusCreateComplete:
 			break poll
@@ -138,28 +139,17 @@ poll:
 		}
 	}
 
-	log.Printf("Resource creation complete. Fetching resources...")
-
-	resources, err := cf.DescribeStackResources(&cloudformation.DescribeStackResourcesInput{
-		StackName: aws.String("llama"),
-	})
-	if err != nil {
-		log.Printf("Fetching stack resources: %s", err.Error())
-		return subcommands.ExitFailure
-	}
+	log.Printf("Resource creation complete. Writing config...")
 
 	newCfg := *global.Config
-	for _, r := range resources.StackResources {
-		switch *r.LogicalResourceId {
-		case "LlamaBucket":
-			newCfg.Store = fmt.Sprintf("s3://%s/obj/", *r.PhysicalResourceId)
-		case "LlamaRole":
-			newCfg.IAMRole = *r.PhysicalResourceId
-		case "LlamaRegistry":
-			newCfg.ECRRepository = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/%s",
-				*ident.Account,
-				*session.Config.Region,
-				*r.PhysicalResourceId)
+	for _, out := range stack.Outputs {
+		switch *out.OutputKey {
+		case "ObjectStore":
+			newCfg.Store = *out.OutputValue
+		case "Role":
+			newCfg.IAMRole = *out.OutputValue
+		case "Repository":
+			newCfg.ECRRepository = *out.OutputValue
 		}
 	}
 	newCfg.Region = *session.Config.Region

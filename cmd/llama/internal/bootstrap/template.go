@@ -25,6 +25,20 @@ const CFTemplate = `{
       "ConstraintDescription": "must be a valid ECR repository name"
     }
   },
+  "Outputs": {
+    "ObjectStore": {
+      "Description": "URL to the Llama object store",
+      "Value": {"Fn::Sub": "s3://${LlamaBucket}/obj/"}
+    },
+    "Repository": {
+      "Description": "URL to the Llama Docker repository",
+      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${LlamaRepository}"}
+    },
+    "Role": {
+      "Description": "ARN of the Llama IAM role",
+      "Value": {"Fn::GetAtt": ["LlamaRole", "Arn"]}
+    }
+  },
   "Resources": {
     "LlamaBucket": {
       "Type": "AWS::S3::Bucket",
@@ -104,7 +118,7 @@ const CFTemplate = `{
         ]
       }
     },
-    "LlamaRegistry": {
+    "LlamaRepository": {
       "Type": "AWS::ECR::Repository",
       "Properties": {
         "RepositoryName": {
@@ -113,4 +127,5 @@ const CFTemplate = `{
       }
     }
   }
-}`
+}
+`
