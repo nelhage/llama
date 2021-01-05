@@ -11,19 +11,19 @@
   "Outputs": {
     "ObjectStore": {
       "Description": "URL to the Llama object store",
-      "Value": {"Fn::Sub": "s3://${LlamaBucket}/obj/"}
+      "Value": {"Fn::Sub": "s3://${Bucket}/obj/"}
     },
     "Repository": {
       "Description": "URL to the Llama Docker repository",
-      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${LlamaRepository}"}
+      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repository}"}
     },
     "Role": {
       "Description": "ARN of the Llama IAM role",
-      "Value": {"Fn::GetAtt": ["LlamaRole", "Arn"]}
+      "Value": {"Fn::GetAtt": ["Role", "Arn"]}
     }
   },
   "Resources": {
-    "LlamaBucket": {
+    "Bucket": {
       "Type": "AWS::S3::Bucket",
       "Properties": {
         "LifecycleConfiguration": {
@@ -38,7 +38,7 @@
         }
       }
     },
-    "LlamaRole": {
+    "Role": {
       "Type": "AWS::IAM::Role",
       "Properties": {
         "AssumeRolePolicyDocument": {
@@ -75,7 +75,7 @@
                   "Resource": [
                     {
                       "Fn::GetAtt": [
-                        "LlamaBucket",
+                        "Bucket",
                         "Arn"
                       ]
                     },
@@ -85,7 +85,7 @@
                         [
                           {
                             "Fn::GetAtt": [
-                              "LlamaBucket",
+                              "Bucket",
                               "Arn"
                             ]
                           },
@@ -101,7 +101,7 @@
         ]
       }
     },
-    "LlamaRepository": {
+    "Repository": {
       "Type": "AWS::ECR::Repository",
       "Properties": {
         "RepositoryName": {

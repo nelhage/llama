@@ -28,19 +28,19 @@ const CFTemplate = `{
   "Outputs": {
     "ObjectStore": {
       "Description": "URL to the Llama object store",
-      "Value": {"Fn::Sub": "s3://${LlamaBucket}/obj/"}
+      "Value": {"Fn::Sub": "s3://${Bucket}/obj/"}
     },
     "Repository": {
       "Description": "URL to the Llama Docker repository",
-      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${LlamaRepository}"}
+      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repository}"}
     },
     "Role": {
       "Description": "ARN of the Llama IAM role",
-      "Value": {"Fn::GetAtt": ["LlamaRole", "Arn"]}
+      "Value": {"Fn::GetAtt": ["Role", "Arn"]}
     }
   },
   "Resources": {
-    "LlamaBucket": {
+    "Bucket": {
       "Type": "AWS::S3::Bucket",
       "Properties": {
         "LifecycleConfiguration": {
@@ -55,7 +55,7 @@ const CFTemplate = `{
         }
       }
     },
-    "LlamaRole": {
+    "Role": {
       "Type": "AWS::IAM::Role",
       "Properties": {
         "AssumeRolePolicyDocument": {
@@ -92,7 +92,7 @@ const CFTemplate = `{
                   "Resource": [
                     {
                       "Fn::GetAtt": [
-                        "LlamaBucket",
+                        "Bucket",
                         "Arn"
                       ]
                     },
@@ -102,7 +102,7 @@ const CFTemplate = `{
                         [
                           {
                             "Fn::GetAtt": [
-                              "LlamaBucket",
+                              "Bucket",
                               "Arn"
                             ]
                           },
@@ -118,7 +118,7 @@ const CFTemplate = `{
         ]
       }
     },
-    "LlamaRepository": {
+    "Repository": {
       "Type": "AWS::ECR::Repository",
       "Properties": {
         "RepositoryName": {
