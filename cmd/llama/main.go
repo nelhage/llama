@@ -31,6 +31,7 @@ func main() {
 	subcommands.Register(subcommands.FlagsCommand(), "")
 
 	subcommands.Register(&bootstrap.BootstrapCommand{}, "config")
+	subcommands.Register(&ConfigCommand{}, "config")
 
 	subcommands.Register(&InvokeCommand{}, "")
 	subcommands.Register(&XargsCommand{}, "")

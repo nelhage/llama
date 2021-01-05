@@ -2,14 +2,14 @@
 set -eu
 root=$(readlink -f "$(dirname "$0")/..")
 cd "$root"
-. scripts/_vars
+eval "$(llama config -shell)"
 container="$1"
 path="${2-images/$container}"
-repository_tag="$repository_base/llama:$container"
+repository_tag="$llama_ecr_repository:$container"
 
 docker build -t nelhage/llama .
 docker build -t "$repository_tag" "$path"
 if ! docker push "$repository_tag"; then
-    aws ecr get-login-password | docker login --username AWS --password-stdin "$repository_base"
+    aws --region "$llama_region" ecr get-login-password | docker login --username AWS --password-stdin "$(dirname "$llama_ecr_repository")"
     docker push "$repository_tag"
 fi

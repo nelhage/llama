@@ -2,19 +2,15 @@
 set -eu
 root=$(readlink -f "$(dirname "$0")/..")
 cd "$root"
-if test -z "${LLAMA_OBJECT_STORE-}"; then
-    echo "You need to set LLAMA_OBJECT_STORE to create a new container." 2>&1
-    exit 1
-fi
-. scripts/_vars
+eval "$(llama config -shell)"
 container="$1"
 path="${2-images/$container}"
 scripts/build-container "$container" "$path"
-aws lambda create-function \
+aws --region "$llama_region" lambda create-function \
     --function-name "$container" --memory-size 1769 \
-    --role "arn:aws:iam::${account_id}:role/llama" \
-    --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
+    --role "$llama_iam_role" \
+    --environment "Variables={LLAMA_OBJECT_STORE=$llama_object_store}" \
     --timeout 60 \
     --package-type Image \
-    --code "ImageUri=${repository_url}:$container" >/dev/null
+    --code "ImageUri=${llama_ecr_repository}:$container" >/dev/null
 scripts/wait-for-function "$container"
