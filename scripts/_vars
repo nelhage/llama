@@ -1,3 +1,0 @@
-account_id=$(aws --output text --query Account sts get-caller-identity)
-repository_base="${account_id}.dkr.ecr.us-west-2.amazonaws.com"
-repository_url="${account_id}.dkr.ecr.us-west-2.amazonaws.com/llama"

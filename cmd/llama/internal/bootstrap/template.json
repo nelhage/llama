@@ -1,0 +1,113 @@
+{
+  "Parameters": {
+    "ECRRepositoryName": {
+      "Type": "String",
+      "Description": "The name for the llama ECR repository",
+      "Default": "llama",
+      "AllowedPattern": "(?:[a-z0-9]+(?:[._-][a-z0-9]+)*/)*[a-z0-9]+(?:[._-][a-z0-9]+)*",
+      "ConstraintDescription": "must be a valid ECR repository name"
+    }
+  },
+  "Outputs": {
+    "ObjectStore": {
+      "Description": "URL to the Llama object store",
+      "Value": {"Fn::Sub": "s3://${Bucket}/obj/"}
+    },
+    "Repository": {
+      "Description": "URL to the Llama Docker repository",
+      "Value": {"Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repository}"}
+    },
+    "Role": {
+      "Description": "ARN of the Llama IAM role",
+      "Value": {"Fn::GetAtt": ["Role", "Arn"]}
+    }
+  },
+  "Resources": {
+    "Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "Expire old objects",
+              "Prefix": "obj/",
+              "Status": "Enabled",
+              "ExpirationInDays": 28
+            }
+          ]
+        }
+      }
+    },
+    "Role": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Description": "The role used to invoke llama Lambda functions",
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "llama-access-object-store",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "LlamaAccessObjectStore",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "Bucket",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::GetAtt": [
+                              "Bucket",
+                              "Arn"
+                            ]
+                          },
+                          "/*"
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "Repository": {
+      "Type": "AWS::ECR::Repository",
+      "Properties": {
+        "RepositoryName": {
+          "Ref": "ECRRepositoryName"
+        }
+      }
+    }
+  }
+}

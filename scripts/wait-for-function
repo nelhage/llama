@@ -1,9 +1,11 @@
 #!/bin/bash
 set -eu
+eval "$(llama config -shell)"
 func="$1"
 echo "Sleeping until function is ready..."
 while :; do
-    status=$(aws --query Configuration.LastUpdateStatus --output text lambda get-function --function-name "$func")
+    status=$(aws --region "$llama_region" --query Configuration.LastUpdateStatus --output text \
+                 lambda get-function --function-name "$func")
     case "$status" in
         Successful)
             exit 0
