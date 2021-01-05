@@ -36,6 +36,7 @@ func WriteConfig(cfg *Config, configPath string) error {
 	if err != nil {
 		return err
 	}
+	encoded = append(encoded, '\n')
 	os.MkdirAll(path.Dir(configPath), 070)
 	return ioutil.WriteFile(configPath, encoded, 0644)
 }
