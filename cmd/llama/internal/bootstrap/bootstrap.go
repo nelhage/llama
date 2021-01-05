@@ -24,9 +24,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/cloudformation"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/google/subcommands"
@@ -71,7 +74,7 @@ func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ..
 		return subcommands.ExitFailure
 	}
 
-	log.Printf("Configuring llama for AWS account ID %s", *ident.Account)
+	log.Printf("AWS credentials detected for account ID %s", *ident.Account)
 
 	if session.Config.Region == nil || *session.Config.Region == "" {
 		region, err := c.readRegion(session)
@@ -84,6 +87,83 @@ func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ..
 	} else {
 		log.Printf("Configuring for region: %s [use llama -region REGION bootstrap to override]", *session.Config.Region)
 	}
+
+	log.Printf("Creating cloudformation stack...")
+
+	cf := cloudformation.New(session)
+	_, err = cf.CreateStack(&cloudformation.CreateStackInput{
+		Capabilities: []*string{aws.String(cloudformation.CapabilityCapabilityIam)},
+		Parameters:   []*cloudformation.Parameter{},
+		TemplateBody: aws.String(CFTemplate),
+		StackName:    aws.String("llama"),
+	})
+
+	if err != nil {
+		if e, ok := err.(awserr.Error); ok && e.Code() == "AlreadyExistsException" {
+			log.Printf("The `llama` stack already exists.")
+			log.Printf("`llama bootstrap` does not yet support updating the stack.")
+			log.Printf("You'll need to delete it and start from scratch, or update it by hand.")
+			return subcommands.ExitFailure
+		}
+		log.Printf("Error creating CF stack: %s", err.Error())
+		return subcommands.ExitFailure
+	}
+
+	log.Printf("Stack created. Polling until completion...")
+poll:
+	for {
+		describe, err := cf.DescribeStacks(&cloudformation.DescribeStacksInput{
+			StackName: aws.String("llama"),
+		})
+		if err != nil {
+			log.Printf("Error describing stack: %s", err.Error())
+			continue
+		}
+		stack := describe.Stacks[0]
+		switch *stack.StackStatus {
+		case cloudformation.StackStatusCreateComplete:
+			break poll
+		case cloudformation.StackStatusCreateInProgress:
+			time.Sleep(2 * time.Second)
+		case cloudformation.StackStatusRollbackComplete,
+			cloudformation.StackStatusRollbackFailed,
+			cloudformation.StackStatusRollbackInProgress:
+			log.Printf("Stack is in rollback! Something went wrong.")
+			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
+			return subcommands.ExitFailure
+		default:
+			log.Printf("Unknown stack state: %s. Something went wrong.")
+			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
+			return subcommands.ExitFailure
+		}
+	}
+
+	log.Printf("Resource creation complete. Fetching resources...")
+
+	resources, err := cf.DescribeStackResources(&cloudformation.DescribeStackResourcesInput{
+		StackName: aws.String("llama"),
+	})
+	if err != nil {
+		log.Printf("Fetching stack resources: %s", err.Error())
+		return subcommands.ExitFailure
+	}
+
+	newCfg := *global.Config
+	for _, r := range resources.StackResources {
+		switch *r.LogicalResourceId {
+		case "LlamaBucket":
+			newCfg.Store = fmt.Sprintf("s3://%s/obj/", *r.PhysicalResourceId)
+		case "LlamaRole":
+			newCfg.IAMRole = *r.PhysicalResourceId
+		case "LlamaRegistry":
+			newCfg.ECRRepository = *r.PhysicalResourceId
+		}
+	}
+	newCfg.Region = *session.Config.Region
+
+	cli.WriteConfig(&newCfg, cli.ConfigPath())
+
+	log.Printf("Llama bootstrap complete. You can now create and use Llama functions.")
 
 	return subcommands.ExitSuccess
 }
@@ -117,5 +197,4 @@ func (c *BootstrapCommand) readRegion(sess *session.Session) (string, error) {
 		}
 		return resp, nil
 	}
-
 }
