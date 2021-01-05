@@ -102,11 +102,11 @@ func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ..
 		if e, ok := err.(awserr.Error); ok && e.Code() == "AlreadyExistsException" {
 			log.Printf("The `llama` stack already exists.")
 			log.Printf("`llama bootstrap` does not yet support updating the stack.")
-			log.Printf("You'll need to delete it and start from scratch, or update it by hand.")
+			log.Printf("I'm going to proceed assuming it's up-to-date.")
+		} else {
+			log.Printf("Error creating CF stack: %s", err.Error())
 			return subcommands.ExitFailure
 		}
-		log.Printf("Error creating CF stack: %s", err.Error())
-		return subcommands.ExitFailure
 	}
 
 	log.Printf("Stack created. Polling until completion...")
