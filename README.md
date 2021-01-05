@@ -83,99 +83,34 @@ some additional work.
 # Configuring llama
 
 Llama requires a few resources to be configured in AWS in order to
-work.
+work. Llama includes a [CloudFormation][cf] template and a command
+which uses it to bootstrap all required resources. You can [read the
+template][template] to see what it's going to do.
+
+[cf]: https://aws.amazon.com/cloudformation/
+[template]: https://github.com/nelhage/llama/blob/master/cmd/llama/internal/bootstrap/template.json
 
 First of all, we need configured AWS credentials on our development
 machine. These should be configured in `~/.aws/credentials` so the AWS
 CLI and `llama` both can find them.
 
-Next, we need an S3 bucket and prefix to use as an object store for
-moving files back and forth. `llama` expects to find this path in the
-`$LLAMA_OBJECT_STORE` environment variable. I'll generate a unique
-unique-named bucket here for our example, but you can use an existing
-bucket if you have one:
-
-```console
-$ LLAMA_BUCKET=llama.$(date +%s)
-$ export LLAMA_OBJECT_STORE=s3://$LLAMA_BUCKET/obj/
-$ aws s3api create-bucket \
-  --bucket $LLAMA_BUCKET \
-  --region us-west-2 \
-  --create-bucket-configuration LocationConstraint=us-west-2
-```
-
-Next, we need an IAM role for our lambdas, with access to CloudFront
-(for logging), and our S3 bucket:
-
-```console
-$ aws iam create-role --role-name llama --assume-role-policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "lambda.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}'
-$ aws iam attach-role-policy \
-  --role-name llama \
-  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-$ aws iam put-role-policy \
-  --role-name llama \
-  --policy-name llama-access-object-store \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "LlamaAccessObjectStore",
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:GetObject",
-                "s3:ListBucketMultipartUploads",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::'$LLAMA_BUCKET'",
-                "arn:aws:s3:::'$LLAMA_BUCKET'/*"
-            ]
-        }
-    ]
-}
-'
-```
-
-(If you're using your own bucket, you'll need to modify the s3 grant
-accordingly)
-
-Finally, we need an ECR repository to publish Docker images so that
-Lambda can read them. By default, Llama uses the repository named
-`llama` in your account, so let's create that now:
-
-```console
-$ aws ecr create-repository --repository-name llama
-```
+Once you have those, run `llama bootstrap` to create the required AWS
+resources. By default, it will prompt you for an AWS region to use;
+you can avoid the prompt using (e.g.) `llama -region us-west-2
+bootstrap`.
 
 ## Packaging functions
 
-Everything above this point only needs to be done once, ever. Now,
-however, we're ready to package code into Lambda functions for use
-with `llama`. We'll follow these steps for each binary we need to run
-using Llama.
+`llama bootstrap` only needs to be run once, ever. Once it is
+successful, we're ready to package code into Lambda functions for use
+with `llama`. We'll follow these steps for each environment we want to
+run code in using Llama.
 
 Llama supports old-type Lambda code packages, where the code is
 distributed as a zip file, but the easiest way to use Llama is with
 Lambda's new Docker container support. Llama can be seen as a bridge
 between the Lambda API and Docker containers, allowing us to invoke
 arbitrary UNIX command lines within a container.
-
-Llama supports both old-style Lambda code packages, where the code is
-published as a zip file, as well as container images. Container images
-are much more flexible, but require an ECR registry and are a bit
-fiddly. We'll walk through both approaches.
 
 ### Building and uploading a container image
 
@@ -301,32 +236,6 @@ $ llama invoke hello world
 Hello from Amazon Lambda
 Received args: world
 ```
-
-[parallel]: https://www.gnu.org/software/parallel/
-
-# Cleaning up old objects
-
-Llama uses the S3 bucket as a content-addressable store to move
-objects between your workstation and the Lambda worker
-processes. Objects are not needed after a llama invocation completes,
-so you may optionally wish to establish a bucket lifecycle policy to
-clean up old objects:
-
-```console
-aws s3api put-bucket-lifecycle-configuration --bucket $LLAMA_BUCKET  --lifecycle-configuration '{
-  "Rules": [
-    {
-      "ID": "Delete old objects",
-      "Prefix": "obj/",
-      "Status": "Enabled",
-      "Expiration": {
-          "Days": 31
-      }
-    }
-  ]
-}'
-```
-
 
 # Inspiration
 
