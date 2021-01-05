@@ -132,7 +132,7 @@ poll:
 			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
 			return subcommands.ExitFailure
 		default:
-			log.Printf("Unknown stack state: %s. Something went wrong.")
+			log.Printf("Unknown stack state: %s. Something went wrong.", *stack.StackStatus)
 			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
 			return subcommands.ExitFailure
 		}
