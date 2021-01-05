@@ -156,7 +156,10 @@ poll:
 		case "LlamaRole":
 			newCfg.IAMRole = *r.PhysicalResourceId
 		case "LlamaRegistry":
-			newCfg.ECRRepository = *r.PhysicalResourceId
+			newCfg.ECRRepository = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/%s",
+				*ident.Account,
+				*session.Config.Region,
+				*r.PhysicalResourceId)
 		}
 	}
 	newCfg.Region = *session.Config.Region
