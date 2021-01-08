@@ -41,3 +41,9 @@ func (c *Client) InvokeWithFiles(in *InvokeWithFilesArgs) (*InvokeWithFilesReply
 	err := c.conn.Call("Daemon.InvokeWithFiles", in, &out)
 	return &out, err
 }
+
+func (c *Client) GetDaemonStats(in *StatsArgs) (*StatsReply, error) {
+	var out StatsReply
+	err := c.conn.Call("Daemon.GetDaemonStats", in, &out)
+	return &out, err
+}

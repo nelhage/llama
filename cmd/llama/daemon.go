@@ -17,7 +17,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
@@ -33,6 +35,7 @@ type DaemonCommand struct {
 	path             string
 	ping             bool
 	shutdown         bool
+	stats            bool
 	start, autostart bool
 	detach           bool
 	idleTimeout      time.Duration
@@ -49,6 +52,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.ping, "ping", false, "Check if the server is running")
 	flags.BoolVar(&c.shutdown, "shutdown", false, "Stop the running server")
 	flags.BoolVar(&c.start, "start", false, "Start the server")
+	flags.BoolVar(&c.stats, "stats", false, "Show server statistics")
 	flags.BoolVar(&c.autostart, "autostart", false, "Start the server if it is not already running")
 	flags.BoolVar(&c.detach, "detach", false, "Detach and run the server in the background")
 	flags.StringVar(&c.path, "path", cli.SocketPath(), "Path to daemon socket")
@@ -56,7 +60,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 }
 
 func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	if c.ping || c.shutdown {
+	if c.ping || c.shutdown || c.stats {
 		client, err := daemon.Dial(ctx, c.path)
 		defer client.Close()
 		if err != nil {
@@ -74,6 +78,16 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 				log.Fatalf("Shutting down daemon: %s", err.Error())
 			}
 			log.Printf("The daemon is exiting.")
+		} else if c.stats {
+			stats, err := client.GetDaemonStats(&daemon.StatsArgs{})
+			if err != nil {
+				log.Fatalf("Getting stats: %s", err.Error())
+			}
+			fmt.Fprintf(os.Stdout, "in_flight=%d\n", stats.Stats.InFlight)
+			fmt.Fprintf(os.Stdout, "max_in_flight=%d\n", stats.Stats.MaxInFlight)
+			fmt.Fprintf(os.Stdout, "invocations=%d\n", stats.Stats.Invocations)
+			fmt.Fprintf(os.Stdout, "func_errors=%d\n", stats.Stats.FunctionErrors)
+			fmt.Fprintf(os.Stdout, "other_errors=%d\n", stats.Stats.OtherErrors)
 		}
 		return subcommands.ExitSuccess
 	} else if c.start || c.autostart {

@@ -39,6 +39,8 @@ type Daemon struct {
 	store    store.Store
 	session  *session.Session
 	lambda   *lambda.Lambda
+
+	stats daemon.Stats
 }
 
 var ErrAlreadyRunning = errors.New("daemon already running")

@@ -40,3 +40,18 @@ type InvokeWithFilesReply struct {
 	Stderr     []byte
 	Logs       []byte
 }
+
+type Stats struct {
+	InFlight    uint64
+	MaxInFlight uint64
+
+	Invocations    uint64
+	FunctionErrors uint64
+	OtherErrors    uint64
+	ExitStatuses   [256]uint64
+}
+
+type StatsArgs struct{}
+type StatsReply struct {
+	Stats Stats
+}

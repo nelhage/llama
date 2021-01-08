@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync/atomic"
 
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
@@ -40,6 +41,19 @@ func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) err
 
 func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
 	ctx := context.Background()
+
+	atomic.AddUint64(&d.stats.Invocations, 1)
+	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
+	defer atomic.AddUint64(&d.stats.InFlight, ^uint64(0))
+	for {
+		oldmax := atomic.LoadUint64(&d.stats.MaxInFlight)
+		if inflight <= oldmax {
+			break
+		}
+		if atomic.CompareAndSwapUint64(&d.stats.MaxInFlight, oldmax, inflight) {
+			break
+		}
+	}
 
 	for _, f := range in.Files {
 		if f.Local.Path != "" && !path.IsAbs(f.Local.Path) {
@@ -80,9 +94,19 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	}
 
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
+	if invokeErr != nil {
+		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
+			atomic.AddUint64(&d.stats.FunctionErrors, 1)
+		} else {
+			atomic.AddUint64(&d.stats.OtherErrors, 1)
+		}
+	}
+
 	if invokeErr != nil && repl == nil {
 		return invokeErr
 	}
+
+	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
 
 	if repl.Response.Outputs != nil {
 		fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
@@ -106,5 +130,18 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 		out.Stderr, _ = repl.Response.Stderr.Read(ctx, d.store)
 	}
 
+	return nil
+}
+
+func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) error {
+	*out = daemon.StatsReply{
+		// TODO: We should really read this a field-at-a-time
+		// using `atomic.LoadUint64`, although I don't believe
+		// that can make any difference on any platform I'm
+		// aware of. In either case we won't get a consistent
+		// snapshot of the entire stats struct. We could just
+		// use a mutex, I guess.
+		Stats: d.stats,
+	}
 	return nil
 }
