@@ -14,7 +14,12 @@
 
 package daemon
 
-import "github.com/nelhage/llama/files"
+import (
+	"time"
+
+	"github.com/nelhage/llama/files"
+	"github.com/nelhage/llama/protocol"
+)
 
 type PingArgs struct{}
 type PingReply struct {
@@ -39,6 +44,16 @@ type InvokeWithFilesReply struct {
 	Stdout     []byte
 	Stderr     []byte
 	Logs       []byte
+
+	Timing Timing
+}
+
+type Timing struct {
+	E2E    time.Duration
+	Upload time.Duration
+	Fetch  time.Duration
+	Remote protocol.Timing
+	Invoke time.Duration
 }
 
 type Stats struct {

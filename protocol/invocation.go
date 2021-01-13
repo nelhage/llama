@@ -14,6 +14,8 @@
 
 package protocol
 
+import "time"
+
 type FileAndPath struct {
 	File
 	Path string `json:"p"`
@@ -32,4 +34,12 @@ type InvocationResponse struct {
 	Stdout     *Blob    `json:"stdout,omitempty"`
 	Stderr     *Blob    `json:"stderr,omitempty"`
 	Outputs    FileList `json:"outputs,omitempty"`
+	Times      Timing   `json:"times"`
+}
+
+type Timing struct {
+	E2E    time.Duration `json:"e2e"`
+	Fetch  time.Duration `json:"fetch"`
+	Upload time.Duration `json:"upload"`
+	Exec   time.Duration `json:"exec"`
 }

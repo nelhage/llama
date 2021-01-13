@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -122,6 +123,7 @@ func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
 
+	t_start := time.Now()
 	parsed, err := parseJob(ctx, store, cmdline, job)
 	if err != nil {
 		return nil, err
@@ -161,10 +163,14 @@ func runOne(ctx context.Context, store store.Store,
 
 	log.Printf("starting command: %v\n", cmd.Args)
 
+	t_exec := time.Now()
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting command: %q", err)
 	}
 	cmd.Wait()
+	t_wait := time.Now()
+
 	resp := protocol.InvocationResponse{
 		ExitStatus: cmd.ProcessState.ExitCode(),
 	}
@@ -188,6 +194,12 @@ func runOne(ctx context.Context, store store.Store,
 		}
 		resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
 	}
+	t_done := time.Now()
+
+	resp.Times.Fetch = t_exec.Sub(t_start)
+	resp.Times.Exec = t_wait.Sub(t_exec)
+	resp.Times.Upload = t_done.Sub(t_wait)
+	resp.Times.E2E = t_done.Sub(t_start)
 
 	return &resp, nil
 }

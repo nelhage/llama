@@ -35,6 +35,7 @@ import (
 type InvokeCommand struct {
 	stdin  bool
 	logs   bool
+	time   bool
 	files  files.List
 	output files.List
 }
@@ -49,6 +50,7 @@ func (*InvokeCommand) Usage() string {
 func (c *InvokeCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.stdin, "stdin", false, "Read from stdin and pass it to the command")
 	flags.BoolVar(&c.logs, "logs", false, "Display command invocation logs")
+	flags.BoolVar(&c.time, "time", false, "Display invocation timing")
 	flags.Var(&c.files, "f", "Pass a file through to the invocation")
 	flags.Var(&c.files, "file", "Pass a file through to the invocation")
 	flags.Var(&c.output, "o", "Fetch additional output files")
@@ -108,6 +110,20 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	}
 	if response.Stderr != nil {
 		os.Stderr.Write(response.Stderr)
+	}
+
+	if c.time {
+		log.Printf("Invoke timing:")
+		log.Printf("total:   %s", response.Timing.E2E)
+		log.Printf("upload:  %s", response.Timing.Upload)
+		log.Printf("invoke:  %s", response.Timing.Invoke)
+		log.Printf("fetch:   %s", response.Timing.Fetch)
+		log.Printf("remote:")
+		log.Printf("  total:   %s", response.Timing.Remote.E2E)
+		log.Printf("  fetch:   %s", response.Timing.Remote.Fetch)
+		log.Printf("  exec:    %s", response.Timing.Remote.Exec)
+		log.Printf("  upload:  %s", response.Timing.Remote.Upload)
+		log.Printf("  network: %s", response.Timing.Invoke-response.Timing.Remote.E2E)
 	}
 
 	if response.InvokeErr != "" {

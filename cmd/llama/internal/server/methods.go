@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"sync/atomic"
+	"time"
 
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
@@ -78,6 +79,8 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 		},
 	}
 
+	t_start := time.Now()
+
 	var err error
 	args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 	if err != nil {
@@ -93,6 +96,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 		args.Spec.Outputs = append(args.Spec.Outputs, out.Remote)
 	}
 
+	t_invoke := time.Now()
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
 	if invokeErr != nil {
 		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
@@ -107,6 +111,8 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	}
 
 	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
+
+	t_fetch := time.Now()
 
 	if repl.Response.Outputs != nil {
 		fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
@@ -129,6 +135,14 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	if repl.Response.Stderr != nil {
 		out.Stderr, _ = repl.Response.Stderr.Read(ctx, d.store)
 	}
+
+	t_end := time.Now()
+
+	out.Timing.Remote = repl.Response.Times
+	out.Timing.Upload = t_invoke.Sub(t_start)
+	out.Timing.Invoke = t_fetch.Sub(t_invoke)
+	out.Timing.Fetch = t_end.Sub(t_fetch)
+	out.Timing.E2E = t_end.Sub(t_start)
 
 	return nil
 }
