@@ -7,6 +7,8 @@ require (
 	github.com/aws/aws-sdk-go v1.35.34
 	github.com/gofrs/flock v0.8.0
 	github.com/google/subcommands v1.2.0
+	github.com/honeycombio/beeline-go v0.11.0
+	github.com/honeycombio/libhoney-go v1.15.0
 	github.com/stretchr/testify v1.6.1
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 )

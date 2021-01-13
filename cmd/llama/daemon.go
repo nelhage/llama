@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/subcommands"
+	"github.com/honeycombio/libhoney-go"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
@@ -91,6 +92,19 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		}
 		return subcommands.ExitSuccess
 	} else if c.start || c.autostart {
+		global := cli.MustState(ctx)
+		if global.Config.Honeycomb.APIKey != "" {
+			dataset := global.Config.Honeycomb.Dataset
+			if dataset == "" {
+				dataset = "llama"
+			}
+			libhoney.Init(libhoney.Config{
+				WriteKey: global.Config.Honeycomb.APIKey,
+				Dataset:  dataset,
+			})
+			defer libhoney.Close()
+		}
+
 		if c.detach {
 			cmd := exec.Command("/proc/self/exe", "daemon", "-start",
 				"-idle-timeout", c.idleTimeout.String(),

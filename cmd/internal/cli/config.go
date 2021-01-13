@@ -29,6 +29,10 @@ type Config struct {
 	ECRRepository string `json:"ecr_repository"`
 	IAMRole       string `json:"iam_role"`
 	S3Concurrency int    `json:"s3_concurrency"`
+	Honeycomb     struct {
+		APIKey  string `json:"api_key,omitempty"`
+		Dataset string `json:"dataset,omitempty"`
+	} `json:"honeycomb,omitempty"`
 }
 
 func WriteConfig(cfg *Config, configPath string) error {

@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	libhoney "github.com/honeycombio/libhoney-go"
+
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
@@ -43,8 +45,19 @@ func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) err
 func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
 	ctx := context.Background()
 
+	ev := libhoney.NewEvent()
+	defer ev.Send()
+	ev.AddField("function", in.Function)
+
 	atomic.AddUint64(&d.stats.Invocations, 1)
 	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
+	ev.AddField("inflight", inflight)
+	if len(in.Outputs) > 0 && in.Outputs[0].Local.Path != "" {
+		ev.AddField("output", in.Outputs[0].Local.Path)
+	}
+	if len(in.Files) > 0 && in.Files[0].Local.Path != "" {
+		ev.AddField("file", in.Files[0].Local.Path)
+	}
 	defer atomic.AddUint64(&d.stats.InFlight, ^uint64(0))
 	for {
 		oldmax := atomic.LoadUint64(&d.stats.MaxInFlight)
@@ -84,11 +97,13 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	var err error
 	args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 	if err != nil {
+		ev.AddField("upload_error", err.Error())
 		return err
 	}
 	if in.Stdin != nil {
 		args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
 		if err != nil {
+			ev.AddField("stdin_error", err.Error())
 			return err
 		}
 	}
@@ -99,6 +114,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	t_invoke := time.Now()
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
 	if invokeErr != nil {
+		ev.AddField("invoke_error", err.Error())
 		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
 			atomic.AddUint64(&d.stats.FunctionErrors, 1)
 		} else {
@@ -116,6 +132,9 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	if repl.Response.Outputs != nil {
 		fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
+		if fetchErr != nil {
+			ev.AddField("fetch_error", fetchErr.Error())
+		}
 		if invokeErr == nil {
 			invokeErr = fetchErr
 		}
@@ -138,11 +157,22 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_end := time.Now()
 
+	ev.Add(out.Timing)
+
 	out.Timing.Remote = repl.Response.Times
 	out.Timing.Upload = t_invoke.Sub(t_start)
 	out.Timing.Invoke = t_fetch.Sub(t_invoke)
 	out.Timing.Fetch = t_end.Sub(t_fetch)
 	out.Timing.E2E = t_end.Sub(t_start)
+
+	ev.AddField("dur.upload_ms", out.Timing.Upload.Milliseconds())
+	ev.AddField("dur.invoke_ms", out.Timing.Invoke.Milliseconds())
+	ev.AddField("dur.fetch_ms", out.Timing.Fetch.Milliseconds())
+	ev.AddField("dur.e2e_ms", out.Timing.E2E.Milliseconds())
+	ev.AddField("dur.lambda.e2e_ms", out.Timing.Remote.E2E.Milliseconds())
+	ev.AddField("dur.lambda.fetch_ms", out.Timing.Remote.Fetch.Milliseconds())
+	ev.AddField("dur.lambda.exec_ms", out.Timing.Remote.Exec.Milliseconds())
+	ev.AddField("dur.lambda.upload_ms", out.Timing.Remote.Upload.Milliseconds())
 
 	return nil
 }
