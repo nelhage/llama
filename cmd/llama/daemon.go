@@ -100,7 +100,6 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			}
 			beeline.Init(beeline.Config{
 				WriteKey: global.Config.Honeycomb.APIKey,
-				Debug:    true,
 				Dataset:  dataset,
 			})
 			defer beeline.Close()
