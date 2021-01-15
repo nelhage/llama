@@ -22,7 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	libhoney "github.com/honeycombio/libhoney-go"
+	"github.com/honeycombio/beeline-go"
+	"github.com/honeycombio/beeline-go/trace"
 
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
@@ -43,20 +44,20 @@ func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) err
 }
 
 func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
-	ctx := context.Background()
-
-	ev := libhoney.NewEvent()
-	defer ev.Send()
-	ev.AddField("function", in.Function)
+	ctx, tr := trace.NewTraceFromPropagationContext(context.Background(), nil)
+	span := tr.GetRootSpan()
+	defer span.Send()
+	span.AddField("name", "InvokeWithFiles")
+	span.AddField("function", in.Function)
 
 	atomic.AddUint64(&d.stats.Invocations, 1)
 	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
-	ev.AddField("inflight", inflight)
+	span.AddField("inflight", inflight)
 	if len(in.Outputs) > 0 && in.Outputs[0].Local.Path != "" {
-		ev.AddField("output", in.Outputs[0].Local.Path)
+		span.AddField("output", in.Outputs[0].Local.Path)
 	}
 	if len(in.Files) > 0 && in.Files[0].Local.Path != "" {
-		ev.AddField("file", in.Files[0].Local.Path)
+		span.AddField("file", in.Files[0].Local.Path)
 	}
 	defer atomic.AddUint64(&d.stats.InFlight, ^uint64(0))
 	for {
@@ -94,49 +95,64 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_start := time.Now()
 
-	var err error
-	args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
-	if err != nil {
-		ev.AddField("upload_error", err.Error())
-		return err
-	}
-	if in.Stdin != nil {
-		args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
+	{
+		ctx, upload := beeline.StartSpan(ctx, "upload")
+		var err error
+		args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 		if err != nil {
-			ev.AddField("stdin_error", err.Error())
+			span.AddField("error", fmt.Sprintf("upload: %s", err.Error()))
 			return err
 		}
-	}
-	for _, out := range in.Outputs {
-		args.Spec.Outputs = append(args.Spec.Outputs, out.Remote)
+		if in.Stdin != nil {
+			args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
+			if err != nil {
+				span.AddField("error", fmt.Sprintf("stdin: %s", err.Error()))
+				return err
+			}
+		}
+		for _, out := range in.Outputs {
+			args.Spec.Outputs = append(args.Spec.Outputs, out.Remote)
+		}
+		upload.Send()
 	}
 
 	t_invoke := time.Now()
-	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
-	if invokeErr != nil {
-		ev.AddField("invoke_error", err.Error())
-		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
-			atomic.AddUint64(&d.stats.FunctionErrors, 1)
-		} else {
-			atomic.AddUint64(&d.stats.OtherErrors, 1)
+
+	var repl *llama.InvokeResult
+	var invokeErr error
+	{
+		ctx, invoke := beeline.StartSpan(ctx, "invoke")
+		repl, invokeErr = llama.Invoke(ctx, d.lambda, &args)
+		if invokeErr != nil {
+			span.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
+			if _, ok := invokeErr.(*llama.ErrorReturn); ok {
+				atomic.AddUint64(&d.stats.FunctionErrors, 1)
+			} else {
+				atomic.AddUint64(&d.stats.OtherErrors, 1)
+			}
 		}
+		invoke.Send()
 	}
 
 	if invokeErr != nil && repl == nil {
 		return invokeErr
 	}
 
-	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
-
 	t_fetch := time.Now()
 
-	if repl.Response.Outputs != nil {
-		fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
-		if fetchErr != nil {
-			ev.AddField("fetch_error", fetchErr.Error())
-		}
-		if invokeErr == nil {
-			invokeErr = fetchErr
+	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
+
+	{
+		if repl.Response.Outputs != nil {
+			ctx, fetch := beeline.StartSpan(ctx, "fetch")
+			fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
+			if fetchErr != nil {
+				span.AddField("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
+			}
+			if invokeErr == nil {
+				invokeErr = fetchErr
+			}
+			fetch.Send()
 		}
 	}
 	*out = daemon.InvokeWithFilesReply{
@@ -157,22 +173,18 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_end := time.Now()
 
-	ev.Add(out.Timing)
-
 	out.Timing.Remote = repl.Response.Times
 	out.Timing.Upload = t_invoke.Sub(t_start)
 	out.Timing.Invoke = t_fetch.Sub(t_invoke)
 	out.Timing.Fetch = t_end.Sub(t_fetch)
 	out.Timing.E2E = t_end.Sub(t_start)
 
-	ev.AddField("dur.upload_ms", out.Timing.Upload.Milliseconds())
-	ev.AddField("dur.invoke_ms", out.Timing.Invoke.Milliseconds())
-	ev.AddField("dur.fetch_ms", out.Timing.Fetch.Milliseconds())
-	ev.AddField("dur.e2e_ms", out.Timing.E2E.Milliseconds())
-	ev.AddField("dur.lambda.e2e_ms", out.Timing.Remote.E2E.Milliseconds())
-	ev.AddField("dur.lambda.fetch_ms", out.Timing.Remote.Fetch.Milliseconds())
-	ev.AddField("dur.lambda.exec_ms", out.Timing.Remote.Exec.Milliseconds())
-	ev.AddField("dur.lambda.upload_ms", out.Timing.Remote.Upload.Milliseconds())
+	/*
+		ev.AddField("dur.upload_ms", out.Timing.Upload.Milliseconds())
+		ev.AddField("dur.invoke_ms", out.Timing.Invoke.Milliseconds())
+		ev.AddField("dur.fetch_ms", out.Timing.Fetch.Milliseconds())
+		ev.AddField("dur.e2e_ms", out.Timing.E2E.Milliseconds())
+	*/
 
 	return nil
 }

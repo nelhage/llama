@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/google/subcommands"
-	"github.com/honeycombio/libhoney-go"
+	"github.com/honeycombio/beeline-go"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
@@ -98,11 +98,12 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			if dataset == "" {
 				dataset = "llama"
 			}
-			libhoney.Init(libhoney.Config{
+			beeline.Init(beeline.Config{
 				WriteKey: global.Config.Honeycomb.APIKey,
+				Debug:    true,
 				Dataset:  dataset,
 			})
-			defer libhoney.Close()
+			defer beeline.Close()
 		}
 
 		if c.detach {
