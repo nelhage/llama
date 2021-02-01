@@ -18,14 +18,15 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"runtime/trace"
 	"strings"
+	"sync"
 
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
+	"golang.org/x/sync/errgroup"
 )
 
 // Only one of Path and Bytes should be set. The purpose of this
@@ -74,42 +75,68 @@ func (f List) Append(mapped ...Mapped) List {
 	return append(f, mapped...)
 }
 
-func (f List) Upload(ctx context.Context, store store.Store, files protocol.FileList) (protocol.FileList, error) {
-	var outErr error
-	trace.WithRegion(ctx, "uploadFiles", func() {
-		for _, file := range f {
-			var data []byte
-			var mode os.FileMode
-			var err error
-
+func uploadWorker(ctx context.Context, store store.Store, jobs <-chan Mapped, out chan<- *protocol.FileAndPath) {
+	for file := range jobs {
+		data, mode, err := func() ([]byte, os.FileMode, error) {
 			if file.Local.Bytes != nil {
 				if file.Local.Path != "" {
 					panic("MappedFile: got both Path and Bytes")
 				}
-				data = file.Local.Bytes
-				mode = file.Local.Mode
+				return file.Local.Bytes, file.Local.Mode, nil
 			} else {
-				data, err = ioutil.ReadFile(file.Local.Path)
+				data, err := ioutil.ReadFile(file.Local.Path)
 				if err != nil {
-					outErr = fmt.Errorf("reading file %q: %w", file.Local.Path, err)
-					return
+					return nil, 0, fmt.Errorf("reading file %q: %w", file.Local.Path, err)
 				}
 				st, err := os.Stat(file.Local.Path)
 				if err != nil {
-					outErr = fmt.Errorf("stat %q: %w", file.Local.Path, err)
-					return
+					return nil, 0, fmt.Errorf("stat %q: %w", file.Local.Path, err)
 				}
-				mode = st.Mode()
+				return data, st.Mode(), nil
 			}
-			blob, err := protocol.NewBlob(ctx, store, data)
-			if err != nil {
-				outErr = err
-				return
+		}()
+		var blob *protocol.Blob
+		if err == nil {
+			blob, err = protocol.NewBlob(ctx, store, data)
+		}
+		if err != nil {
+			blob = &protocol.Blob{Err: err.Error()}
+		}
+		out <- &protocol.FileAndPath{
+			File: protocol.File{Blob: *blob, Mode: mode},
+			Path: file.Remote,
+		}
+	}
+}
+
+const storeConcurrency = 32
+
+func (f List) Upload(ctx context.Context, store store.Store, files protocol.FileList) (protocol.FileList, error) {
+	var outErr error
+	trace.WithRegion(ctx, "uploadFiles", func() {
+		var wg sync.WaitGroup
+		jobs := make(chan Mapped)
+		out := make(chan *protocol.FileAndPath)
+
+		go func() {
+			defer close(jobs)
+			for _, file := range f {
+				jobs <- file
 			}
-			files = append(files, protocol.FileAndPath{
-				File: protocol.File{Blob: *blob, Mode: mode},
-				Path: file.Remote,
-			})
+		}()
+		for i := 0; i < storeConcurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				uploadWorker(ctx, store, jobs, out)
+			}()
+		}
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+		for file := range out {
+			files = append(files, *file)
 		}
 	})
 	if outErr != nil {
@@ -118,10 +145,26 @@ func (f List) Upload(ctx context.Context, store store.Store, files protocol.File
 	return files, nil
 }
 
+func fetchWorker(ctx context.Context, store store.Store, byPath map[string]*Mapped, jobs <-chan protocol.FileAndPath) error {
+	for out := range jobs {
+		mapped, ok := byPath[out.Path]
+		if !ok {
+			err := fmt.Errorf("Command returned unrequested file: %q", out.Path)
+			return err
+		}
+		if err := out.Fetch(ctx, store, mapped.Local.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (f List) Fetch(ctx context.Context, store store.Store, outputs protocol.FileList) error {
 	var outErr error
 
 	trace.WithRegion(ctx, "fetchOutputs", func() {
+		grp, ctx := errgroup.WithContext(ctx)
+
 		byPath := make(map[string]*Mapped)
 		for i := range f {
 			file := &f[i]
@@ -130,18 +173,27 @@ func (f List) Fetch(ctx context.Context, store store.Store, outputs protocol.Fil
 			}
 			byPath[file.Remote] = file
 		}
-		for _, out := range outputs {
-			mapped, ok := byPath[out.Path]
-			if !ok {
-				outErr = fmt.Errorf("Command returned unrequested file: %q", out.Path)
-				log.Printf(outErr.Error())
-				continue
+
+		jobs := make(chan protocol.FileAndPath)
+
+		grp.Go(func() error {
+			defer close(jobs)
+			for _, out := range outputs {
+				select {
+				case jobs <- out:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
-			if err := out.Fetch(ctx, store, mapped.Local.Path); err != nil {
-				log.Printf("Fetch %q: %s", mapped.Local.Path, err.Error())
-				outErr = err
-			}
+			return nil
+		})
+		for i := 0; i < storeConcurrency; i++ {
+			grp.Go(func() error {
+				return fetchWorker(ctx, store, byPath, jobs)
+			})
 		}
+		outErr = grp.Wait()
+
 	})
 	return outErr
 }

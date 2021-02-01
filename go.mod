@@ -11,4 +11,5 @@ require (
 	github.com/honeycombio/libhoney-go v1.15.0
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
+	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 )
