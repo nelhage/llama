@@ -85,9 +85,10 @@ func (c *Compilation) Compiler() string {
 type Flags struct {
 	MD  bool
 	MMD bool
-	C   bool
-	S   bool
 	MF  string
+
+	C bool
+	S bool
 }
 
 func smellsLikeInput(arg string) bool {
@@ -280,7 +281,8 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 		out.Output = replaceExt(out.Input, ".o")
 	}
 	if (out.Flag.MD || out.Flag.MMD) && out.Flag.MF == "" {
-		out.LocalArgs = append(out.LocalArgs, "-MF", replaceExt(out.Output, ".d"))
+		out.Flag.MF = replaceExt(out.Output, ".d")
+		out.LocalArgs = append(out.LocalArgs, "-MF", out.Flag.MF)
 	}
 	if out.Language == "" {
 		lang, ok := extLangs[path.Ext(out.Input)]

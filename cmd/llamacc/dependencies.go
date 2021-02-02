@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"os"
 	"os/exec"
 )
 
-func detectDependencies(cfg *Config, comp *Compilation) ([]string, error) {
+func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
 	var preprocessor exec.Cmd
 	ccpath, err := exec.LookPath(comp.Compiler())
 	if err != nil {

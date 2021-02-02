@@ -47,6 +47,18 @@ func SpanFromContext(ctx context.Context) (*Span, bool) {
 	return v, ok
 }
 
+func PropagationFromContext(ctx context.Context) Propagation {
+	span, ok := SpanFromContext(ctx)
+	if ok {
+		return Propagation{
+			TraceId:  span.TraceId,
+			ParentId: span.ParentId,
+		}
+	} else {
+		return Propagation{}
+	}
+}
+
 func StartSpan(ctx context.Context, name string) (context.Context, *SpanBuilder) {
 	parent, ok := SpanFromContext(ctx)
 	if ok {

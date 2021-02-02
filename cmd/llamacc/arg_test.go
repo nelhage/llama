@@ -43,6 +43,7 @@ func TestParseCompile(t *testing.T) {
 				Flag: Flags{
 					MD: true,
 					C:  true,
+					MF: "platform/linux/linux_ptrace.d",
 				},
 			},
 			false,
