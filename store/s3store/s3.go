@@ -63,21 +63,19 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	start := time.Now()
 	span.AddField("object_id", id)
 
-	/*
-		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: &s.url.Host,
-			Key:    key,
-		})
-		if err == nil {
-			span.AddField("cache_hit", true)
-			return id, nil
-		}
-		if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
-			// 404 not found -- do the upload
-		} else {
-			return "", err
-		}
-	*/
+	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		Bucket: &s.url.Host,
+		Key:    key,
+	})
+	if err == nil {
+		span.AddField("cache_hit", true)
+		return id, nil
+	}
+	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
+		// 404 not found -- do the upload
+	} else {
+		return "", err
+	}
 
 	span.AddField("cache_hit", false)
 	span.AddRollupField("s3.write_bytes", float64(len(obj)))
