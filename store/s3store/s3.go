@@ -22,9 +22,11 @@ import (
 	"io/ioutil"
 	"net/url"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/honeycombio/beeline-go"
@@ -35,6 +37,26 @@ type Store struct {
 	session *session.Session
 	s3      *s3.S3
 	url     *url.URL
+
+	cache cache
+}
+
+type cache struct {
+	sync.Mutex
+	seen map[string]struct{}
+}
+
+func (c *cache) hasObject(id string) bool {
+	c.Lock()
+	defer c.Unlock()
+	_, ok := c.seen[id]
+	return ok
+}
+
+func (c *cache) addObject(id string) {
+	c.Lock()
+	defer c.Unlock()
+	c.seen[id] = struct{}{}
 }
 
 func FromSession(s *session.Session, address string) (*Store, error) {
@@ -49,6 +71,9 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 		session: s,
 		s3:      s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true)),
 		url:     u,
+		cache: cache{
+			seen: make(map[string]struct{}),
+		},
 	}, nil
 }
 
@@ -57,6 +82,11 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	defer span.Send()
 	csum := blake2b.Sum256(obj)
 	id := hex.EncodeToString(csum[:])
+
+	if s.cache.hasObject(id) {
+		return id, nil
+	}
+
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
@@ -68,7 +98,8 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		Key:    key,
 	})
 	if err == nil {
-		span.AddField("cache_hit", true)
+		span.AddField("s3.exists", true)
+		s.cache.addObject(id)
 		return id, nil
 	}
 	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
@@ -77,7 +108,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		return "", err
 	}
 
-	span.AddField("cache_hit", false)
+	span.AddField("s3.exists", false)
 	span.AddRollupField("s3.write_bytes", float64(len(obj)))
 
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
@@ -89,6 +120,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.cache.addObject(id)
 	return id, nil
 }
 
@@ -114,6 +146,7 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	if gotId != id {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
+	s.cache.addObject(id)
 
 	span.AddRollupField("s3.write_bytes", float64(len(body)))
 	span.AddRollupField("s3.time_ms", float64(time.Since(start).Milliseconds()))
