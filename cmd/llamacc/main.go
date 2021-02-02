@@ -133,6 +133,9 @@ func main() {
 		err = checkSupported(&cfg, &comp)
 	}
 	if err == nil {
+		_, err = detectDependencies(&cfg, &comp)
+	}
+	if err == nil {
 		err = runLlamaCC(&cfg, &comp)
 		if err != nil {
 			if ex, ok := err.(*exec.ExitError); ok {
