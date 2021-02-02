@@ -16,12 +16,6 @@ package protocol
 
 import "time"
 
-type FileAndPath struct {
-	File
-	Path string `json:"p"`
-}
-type FileList []FileAndPath
-
 type InvocationSpec struct {
 	Args    []string `json:"args"`
 	Stdin   *Blob    `json:"stdin,omitempty"`

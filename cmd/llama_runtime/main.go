@@ -227,23 +227,14 @@ func parseJob(ctx context.Context,
 	}
 	job.Args = append(job.Args, spec.Args...)
 
-	for _, file := range spec.Files {
-		data, err := file.Read(ctx, store)
-		if err != nil {
+	for i, file := range spec.Files {
+		spec.Files[i].Path = path.Join(job.Root, file.Path)
+		if err := os.MkdirAll(path.Dir(spec.Files[i].Path), 0755); err != nil {
 			return nil, err
 		}
-		dest := path.Join(job.Root, file.Path)
-		if err := os.MkdirAll(path.Dir(dest), 0755); err != nil {
-			return nil, err
-		}
-		mode := file.Mode
-		if mode == 0 {
-			mode = 0644
-		}
-		log.Printf("Writing file: %q", dest)
-		if err := ioutil.WriteFile(dest, data, mode); err != nil {
-			return nil, err
-		}
+	}
+	if err := spec.Files.Fetch(ctx, store); err != nil {
+		return nil, err
 	}
 
 	for _, f := range spec.Outputs {

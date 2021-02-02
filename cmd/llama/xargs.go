@@ -249,7 +249,8 @@ func prepareInvocation(ctx context.Context,
 }
 
 func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *Invocation) {
-	spec, err := prepareInvocation(ctx, global.MustStore(), c.fileMap, job)
+	store := global.MustStore()
+	spec, err := prepareInvocation(ctx, store, c.fileMap, job)
 	if err != nil {
 		job.Err = err
 		return
@@ -266,6 +267,10 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
 
 	if job.Err == nil {
-		job.Err = job.TemplateContext.Outputs.Fetch(ctx, global.MustStore(), job.Result.Response.Outputs)
+		fetchList, extra := job.TemplateContext.Outputs.TransformToLocal(ctx, job.Result.Response.Outputs)
+		for _, out := range extra {
+			log.Printf("Remote returned unexpected output: %s", out.Path)
+		}
+		job.Err = fetchList.Fetch(ctx, store)
 	}
 }

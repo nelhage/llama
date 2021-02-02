@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"sync/atomic"
@@ -145,7 +146,12 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	{
 		if repl.Response.Outputs != nil {
 			ctx, fetch := beeline.StartSpan(ctx, "fetch")
-			fetchErr := in.Outputs.Fetch(ctx, d.store, repl.Response.Outputs)
+			fetchList, extra := in.Outputs.TransformToLocal(ctx, repl.Response.Outputs)
+			for _, out := range extra {
+				log.Printf("Remote returned unexpected output: %s", out.Path)
+			}
+
+			fetchErr := fetchList.Fetch(ctx, d.store)
 			if fetchErr != nil {
 				span.AddField("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
 			}

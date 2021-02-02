@@ -20,9 +20,11 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
+	"runtime/trace"
 	"unicode/utf8"
 
 	"github.com/nelhage/llama/store"
+	"golang.org/x/sync/errgroup"
 )
 
 const MaxInlineBlob = 10 * 1024
@@ -38,6 +40,13 @@ type File struct {
 	Blob
 	Mode os.FileMode `json:"m,omitempty"`
 }
+
+type FileAndPath struct {
+	File
+	Path string `json:"p"`
+}
+
+type FileList []FileAndPath
 
 func (b *Blob) Read(ctx context.Context, store store.Store) ([]byte, error) {
 	if b.String != "" {
@@ -63,7 +72,50 @@ func (f *File) Fetch(ctx context.Context, store store.Store, where string) error
 	if f.Mode.IsDir() {
 		return errors.New("is directory")
 	}
+	if f.Mode == 0 {
+		f.Mode = 0644
+	}
 	return ioutil.WriteFile(where, data, f.Mode)
+}
+
+func fetchWorker(ctx context.Context, store store.Store, files <-chan FileAndPath) error {
+	for out := range files {
+		if err := out.Fetch(ctx, store, out.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const fetchConcurrency = 32
+
+func (f FileList) Fetch(ctx context.Context, store store.Store) error {
+	var outErr error
+
+	trace.WithRegion(ctx, "FileList.Fetch", func() {
+		grp, ctx := errgroup.WithContext(ctx)
+		jobs := make(chan FileAndPath)
+
+		grp.Go(func() error {
+			defer close(jobs)
+			for _, out := range f {
+				select {
+				case jobs <- out:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		})
+		for i := 0; i < fetchConcurrency; i++ {
+			grp.Go(func() error {
+				return fetchWorker(ctx, store, jobs)
+			})
+		}
+		outErr = grp.Wait()
+
+	})
+	return outErr
 }
 
 func NewBlob(ctx context.Context, store store.Store, bytes []byte) (*Blob, error) {

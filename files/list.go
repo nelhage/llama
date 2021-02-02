@@ -26,7 +26,6 @@ import (
 
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
-	"golang.org/x/sync/errgroup"
 )
 
 // Only one of Path and Bytes should be set. The purpose of this
@@ -109,7 +108,7 @@ func uploadWorker(ctx context.Context, store store.Store, jobs <-chan Mapped, ou
 	}
 }
 
-const storeConcurrency = 32
+const uploadConcurrency = 32
 
 func (f List) Upload(ctx context.Context, store store.Store, files protocol.FileList) (protocol.FileList, error) {
 	var outErr error
@@ -124,7 +123,7 @@ func (f List) Upload(ctx context.Context, store store.Store, files protocol.File
 				jobs <- file
 			}
 		}()
-		for i := 0; i < storeConcurrency; i++ {
+		for i := 0; i < uploadConcurrency; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -145,57 +144,20 @@ func (f List) Upload(ctx context.Context, store store.Store, files protocol.File
 	return files, nil
 }
 
-func fetchWorker(ctx context.Context, store store.Store, byPath map[string]*Mapped, jobs <-chan protocol.FileAndPath) error {
-	for out := range jobs {
-		mapped, ok := byPath[out.Path]
-		if !ok {
-			err := fmt.Errorf("Command returned unrequested file: %q", out.Path)
-			return err
-		}
-		if err := out.Fetch(ctx, store, mapped.Local.Path); err != nil {
-			return err
+func (f List) TransformToLocal(ctx context.Context, files protocol.FileList) (ok protocol.FileList, bad protocol.FileList) {
+	byPath := make(map[string]string)
+	for _, out := range f {
+		byPath[out.Remote] = out.Local.Path
+	}
+	for _, out := range files {
+		if local, found := byPath[out.Path]; found {
+			out.Path = local
+			ok = append(ok, out)
+		} else {
+			bad = append(bad, out)
 		}
 	}
-	return nil
-}
-
-func (f List) Fetch(ctx context.Context, store store.Store, outputs protocol.FileList) error {
-	var outErr error
-
-	trace.WithRegion(ctx, "fetchOutputs", func() {
-		grp, ctx := errgroup.WithContext(ctx)
-
-		byPath := make(map[string]*Mapped)
-		for i := range f {
-			file := &f[i]
-			if file.Local.Path == "" || file.Local.Bytes != nil {
-				panic("Fetch: local file must be a path")
-			}
-			byPath[file.Remote] = file
-		}
-
-		jobs := make(chan protocol.FileAndPath)
-
-		grp.Go(func() error {
-			defer close(jobs)
-			for _, out := range outputs {
-				select {
-				case jobs <- out:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			return nil
-		})
-		for i := 0; i < storeConcurrency; i++ {
-			grp.Go(func() error {
-				return fetchWorker(ctx, store, byPath, jobs)
-			})
-		}
-		outErr = grp.Wait()
-
-	})
-	return outErr
+	return
 }
 
 func (f List) MakeAbsolute(base string) List {
