@@ -189,6 +189,10 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	span.AddField("dur.invoke_ms", out.Timing.Invoke.Milliseconds())
 	span.AddField("dur.fetch_ms", out.Timing.Fetch.Milliseconds())
 	span.AddField("dur.e2e_ms", out.Timing.E2E.Milliseconds())
+	span.AddField("dur.lambda.e2e_ms", out.Timing.Remote.E2E.Milliseconds())
+	span.AddField("dur.lambda.fetch_ms", out.Timing.Remote.Fetch.Milliseconds())
+	span.AddField("dur.lambda.exec_ms", out.Timing.Remote.Exec.Milliseconds())
+	span.AddField("dur.lambda.upload_ms", out.Timing.Remote.Upload.Milliseconds())
 
 	return nil
 }
