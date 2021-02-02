@@ -102,8 +102,12 @@ func checkSupported(cfg *Config, comp *Compilation) error {
 func main() {
 	cfg := ParseConfig(os.Environ())
 	comp, err := ParseCompile(&cfg, os.Args)
+	var deps []string
 	if err == nil {
 		err = checkSupported(&cfg, &comp)
+	}
+	if err == nil {
+		deps, err = detectDependencies(&cfg, &comp)
 	}
 	if err == nil {
 		err = runLlamaCC(&cfg, &comp)

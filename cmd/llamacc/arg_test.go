@@ -37,6 +37,7 @@ func TestParseCompile(t *testing.T) {
 				PreprocessedLanguage: "cpp-output",
 				Input:                "platform/linux/linux_ptrace.c",
 				Output:               "platform/linux/linux_ptrace.o",
+				UnknownArgs:          []string{"-Wall", "-Werror", "-g"},
 				LocalArgs:            []string{"-MD", "-Wall", "-Werror", "-D_GNU_SOURCE", "-g", "-MF", "platform/linux/linux_ptrace.d"},
 				RemoteArgs:           []string{"-Wall", "-Werror", "-g", "-c"},
 				Flag: Flags{
@@ -87,6 +88,7 @@ func TestParseCompile(t *testing.T) {
 				PreprocessedLanguage: "assembler",
 				Input:                "/home/nelhage/code/boringssl/build/crypto/chacha/chacha-x86_64.S",
 				Output:               "CMakeFiles/crypto.dir/chacha/chacha-x86_64.S.o",
+				UnknownArgs:          []string{"-Wa,--noexecstack", "-Wa,-g"},
 				LocalArgs:            []string{"-DBORINGSSL_DISPATCH_TEST", "-DBORINGSSL_HAVE_LIBUNWIND", "-DBORINGSSL_IMPLEMENTATION", "-I/home/nelhage/code/boringssl/third_party/googletest/include", "-I/home/nelhage/code/boringssl/crypto/../include", "-Wa,--noexecstack", "-Wa,-g"},
 				RemoteArgs:           []string{"-Wa,--noexecstack", "-Wa,-g", "-c"},
 				Flag: Flags{
@@ -101,6 +103,9 @@ func TestParseCompile(t *testing.T) {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
 			got, err := ParseCompile(&DefaultConfig, tc.argv)
+			// Don't compare includes or defines for now
+			got.Includes = nil
+			got.Defs = nil
 			if tc.err {
 				require.Error(t, err)
 			} else {
