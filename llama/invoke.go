@@ -93,6 +93,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())
 	span.AddField("exec_ms", out.Response.Times.Exec.Milliseconds())
 	span.AddField("upload_ms", out.Response.Times.Upload.Milliseconds())
+	span.AddField("cold_start", out.Response.Times.ColdStart)
 
 	return &out, nil
 }
