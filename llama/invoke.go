@@ -47,7 +47,7 @@ func (e *ErrorReturn) Error() string {
 }
 
 func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeResult, error) {
-	ctx, span := beeline.StartSpan(ctx, "invoke")
+	ctx, span := beeline.StartSpan(ctx, "llama.Invoke")
 	defer span.Send()
 	span.AddField("function", args.Function)
 
@@ -55,6 +55,8 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
+
+	span.AddField("payload_bytes", len(payload))
 
 	input := lambda.InvokeInput{
 		FunctionName: &args.Function,
@@ -80,6 +82,8 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 			Logs:    out.Logs,
 		}
 	}
+
+	span.AddField("response_bytes", len(resp.Payload))
 
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {
 		return nil, fmt.Errorf("unmarshal: %q", err)
