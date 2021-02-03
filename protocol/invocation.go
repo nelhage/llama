@@ -32,8 +32,9 @@ type InvocationResponse struct {
 }
 
 type Timing struct {
-	E2E    time.Duration `json:"e2e"`
-	Fetch  time.Duration `json:"fetch"`
-	Upload time.Duration `json:"upload"`
-	Exec   time.Duration `json:"exec"`
+	ColdStart bool          `json:"cold"`
+	E2E       time.Duration `json:"e2e"`
+	Fetch     time.Duration `json:"fetch"`
+	Upload    time.Duration `json:"upload"`
+	Exec      time.Duration `json:"exec"`
 }
