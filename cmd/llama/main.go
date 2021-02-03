@@ -19,7 +19,6 @@ import (
 	"flag"
 	"log"
 	"os"
-	"runtime/trace"
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
@@ -53,12 +52,10 @@ func runLlama(ctx context.Context) int {
 	var regionOverride string
 	var storeOverride string
 	debugAWS := false
-	var traceFile string
 	var storeConcurrency int
 	flag.StringVar(&regionOverride, "region", "", "AWS region")
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
-	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
 	flag.IntVar(&storeConcurrency, "s3-concurrency", defaultStoreConcurrency, "Maximum concurrent S3 uploads/downloads")
 
 	flag.Parse()
@@ -81,19 +78,6 @@ func runLlama(ctx context.Context) int {
 		cfg.Region = regionOverride
 	}
 	cfg.DebugAWS = debugAWS
-
-	if traceFile != "" {
-		f, err := os.Create(traceFile)
-		if err != nil {
-			log.Fatalf("open trace: %s", err.Error())
-		}
-		defer f.Close()
-		trace.Start(f)
-		defer trace.Stop()
-	}
-
-	ctx, task := trace.NewTask(ctx, "llama")
-	defer task.End()
 
 	var state cli.GlobalState
 	state.Config = cfg

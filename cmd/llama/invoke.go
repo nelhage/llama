@@ -22,7 +22,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"runtime/trace"
 	"text/template"
 
 	"github.com/google/subcommands"
@@ -72,12 +71,11 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	}
 
 	var err error
-	trace.WithRegion(ctx, "prepareArguments", func() {
-		var ioctx files.IOContext
-		args.Args, ioctx, err = prepareArgs(ctx, global, flag.Args()[1:])
-		args.Files = c.files.Append(ioctx.Inputs...)
-		args.Outputs = c.output.Append(ioctx.Outputs...)
-	})
+	var ioctx files.IOContext
+	args.Args, ioctx, err = prepareArgs(ctx, global, flag.Args()[1:])
+	args.Files = c.files.Append(ioctx.Inputs...)
+	args.Outputs = c.output.Append(ioctx.Outputs...)
+
 	if err != nil {
 		log.Println("preparing arguments: ", err.Error())
 		return subcommands.ExitFailure

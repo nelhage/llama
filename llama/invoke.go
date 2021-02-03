@@ -19,7 +19,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"runtime/trace"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
@@ -67,11 +66,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 
 	var out InvokeResult
 
-	var resp *lambda.InvokeOutput
-	trace.WithRegion(ctx, "Invoke", func() {
-		trace.Logf(ctx, "llama.invoke", "invoke: function=%s args=%v", args.Function, args.Spec.Args)
-		resp, err = svc.Invoke(&input)
-	})
+	resp, err := svc.Invoke(&input)
 	if err != nil {
 		return nil, fmt.Errorf("Invoke(): %w", err)
 	}
