@@ -20,7 +20,6 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
-	"runtime/trace"
 	"unicode/utf8"
 
 	"github.com/nelhage/llama/store"
@@ -90,32 +89,26 @@ func fetchWorker(ctx context.Context, store store.Store, files <-chan FileAndPat
 const fetchConcurrency = 32
 
 func (f FileList) Fetch(ctx context.Context, store store.Store) error {
-	var outErr error
+	grp, ctx := errgroup.WithContext(ctx)
+	jobs := make(chan FileAndPath)
 
-	trace.WithRegion(ctx, "FileList.Fetch", func() {
-		grp, ctx := errgroup.WithContext(ctx)
-		jobs := make(chan FileAndPath)
-
-		grp.Go(func() error {
-			defer close(jobs)
-			for _, out := range f {
-				select {
-				case jobs <- out:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
+	grp.Go(func() error {
+		defer close(jobs)
+		for _, out := range f {
+			select {
+			case jobs <- out:
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			return nil
-		})
-		for i := 0; i < fetchConcurrency; i++ {
-			grp.Go(func() error {
-				return fetchWorker(ctx, store, jobs)
-			})
 		}
-		outErr = grp.Wait()
-
+		return nil
 	})
-	return outErr
+	for i := 0; i < fetchConcurrency; i++ {
+		grp.Go(func() error {
+			return fetchWorker(ctx, store, jobs)
+		})
+	}
+	return grp.Wait()
 }
 
 func NewBlob(ctx context.Context, store store.Store, bytes []byte) (*Blob, error) {
