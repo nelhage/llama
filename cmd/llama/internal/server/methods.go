@@ -119,20 +119,14 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_invoke := time.Now()
 
-	var repl *llama.InvokeResult
-	var invokeErr error
-	{
-		ctx, invoke := beeline.StartSpan(ctx, "invoke")
-		repl, invokeErr = llama.Invoke(ctx, d.lambda, &args)
-		if invokeErr != nil {
-			span.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
-			if _, ok := invokeErr.(*llama.ErrorReturn); ok {
-				atomic.AddUint64(&d.stats.FunctionErrors, 1)
-			} else {
-				atomic.AddUint64(&d.stats.OtherErrors, 1)
-			}
+	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
+	if invokeErr != nil {
+		span.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
+		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
+			atomic.AddUint64(&d.stats.FunctionErrors, 1)
+		} else {
+			atomic.AddUint64(&d.stats.OtherErrors, 1)
 		}
-		invoke.Send()
 	}
 
 	if invokeErr != nil && repl == nil {
