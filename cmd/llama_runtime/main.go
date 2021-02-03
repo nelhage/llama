@@ -119,9 +119,12 @@ func computeCmdline(argv []string) []string {
 	return argv
 }
 
+var jobs = 0
+
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+	jobs += 1
 
 	t_start := time.Now()
 	parsed, err := parseJob(ctx, store, cmdline, job)
@@ -196,6 +199,7 @@ func runOne(ctx context.Context, store store.Store,
 	}
 	t_done := time.Now()
 
+	resp.Times.ColdStart = jobs == 1
 	resp.Times.Fetch = t_exec.Sub(t_start)
 	resp.Times.Exec = t_wait.Sub(t_exec)
 	resp.Times.Upload = t_done.Sub(t_wait)
