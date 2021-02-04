@@ -43,7 +43,8 @@ func TestDialWithAutostart(t *testing.T) {
 	start := make(chan struct{})
 	ctx := context.Background()
 
-	os.Setenv("LLAMA_STORE", "s3://dummy-store/")
+	os.Setenv("LLAMA_DIR", dir)
+	os.Setenv("LLAMA_OBJECT_STORE", "s3://dummy-store/")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
