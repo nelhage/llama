@@ -59,3 +59,11 @@ func (sp *SpanBuilder) End() *Span {
 	}
 	return &sp.span
 }
+
+func (sp *SpanBuilder) TraceId() string {
+	return sp.span.TraceId
+}
+
+func (sp *SpanBuilder) Id() string {
+	return sp.span.SpanId
+}

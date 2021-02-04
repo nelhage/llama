@@ -51,6 +51,12 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	defer span.End()
 	span.SetLabel("function", args.Function)
 
+	// Maybe do this conditionally? Not sure
+	args.Spec.Trace = &protocol.TraceContext{
+		TraceId:  span.TraceId(),
+		ParentId: span.Id(),
+	}
+
 	payload, err := json.Marshal(&args.Spec)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
@@ -88,6 +94,8 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {
 		return nil, fmt.Errorf("unmarshal: %q", err)
 	}
+
+	tracing.SubmitAll(ctx, out.Response.Spans)
 
 	span.SetMetric("e2e_ms", float64(out.Response.Times.E2E.Milliseconds()))
 	span.SetMetric("fetch_ms", float64(out.Response.Times.Fetch.Milliseconds()))

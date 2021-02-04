@@ -48,20 +48,23 @@ func SpanFromContext(ctx context.Context) (*Span, bool) {
 }
 
 func StartSpan(ctx context.Context, name string) (context.Context, *SpanBuilder) {
-	sb := SpanBuilder{
-		span: Span{
-			SpanId: newId(),
-			Name:   name,
-			Start:  time.Now(),
-		},
-	}
 	parent, ok := SpanFromContext(ctx)
 	if ok {
-		sb.span.TraceId = parent.TraceId
-		sb.span.ParentId = parent.SpanId
+		return StartSpanInTrace(ctx, name, parent.TraceId, parent.SpanId)
 	} else {
-		sb.span.TraceId = newId()
-		sb.span.ParentId = ""
+		return StartSpanInTrace(ctx, name, newId(), "")
+	}
+}
+
+func StartSpanInTrace(ctx context.Context, name, trace, parent string) (context.Context, *SpanBuilder) {
+	sb := SpanBuilder{
+		span: Span{
+			SpanId:   newId(),
+			TraceId:  trace,
+			ParentId: parent,
+			Name:     name,
+			Start:    time.Now(),
+		},
 	}
 	sb.tracer, _ = TracerFromContext(ctx)
 	return WithSpan(ctx, &sb.span), &sb
