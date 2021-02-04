@@ -22,8 +22,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
-	"github.com/honeycombio/beeline-go"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/tracing"
 )
 
 type InvokeArgs struct {
@@ -47,16 +47,16 @@ func (e *ErrorReturn) Error() string {
 }
 
 func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeResult, error) {
-	ctx, span := beeline.StartSpan(ctx, "llama.Invoke")
-	defer span.Send()
-	span.AddField("function", args.Function)
+	ctx, span := tracing.StartSpan(ctx, "llama.Invoke")
+	defer span.End()
+	span.SetLabel("function", args.Function)
 
 	payload, err := json.Marshal(&args.Spec)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	span.AddField("payload_bytes", len(payload))
+	span.SetMetric("payload_bytes", float64(len(payload)))
 
 	input := lambda.InvokeInput{
 		FunctionName: &args.Function,
@@ -83,17 +83,19 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		}
 	}
 
-	span.AddField("response_bytes", len(resp.Payload))
+	span.SetMetric("response_bytes", float64(len(resp.Payload)))
 
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {
 		return nil, fmt.Errorf("unmarshal: %q", err)
 	}
 
-	span.AddField("e2e_ms", out.Response.Times.E2E.Milliseconds())
-	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())
-	span.AddField("exec_ms", out.Response.Times.Exec.Milliseconds())
-	span.AddField("upload_ms", out.Response.Times.Upload.Milliseconds())
-	span.AddField("cold_start", out.Response.Times.ColdStart)
+	span.SetMetric("e2e_ms", float64(out.Response.Times.E2E.Milliseconds()))
+	span.SetMetric("fetch_ms", float64(out.Response.Times.Fetch.Milliseconds()))
+	span.SetMetric("exec_ms", float64(out.Response.Times.Exec.Milliseconds()))
+	span.SetMetric("upload_ms", float64(out.Response.Times.Upload.Milliseconds()))
+	if out.Response.Times.ColdStart {
+		span.SetLabel("cold_start", "true")
+	}
 
 	return &out, nil
 }
