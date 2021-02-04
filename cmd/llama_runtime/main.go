@@ -199,34 +199,42 @@ func executeJob(ctx context.Context, store store.Store,
 
 	t_exec := time.Now()
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting command: %q", err)
+	{
+		_, span := tracing.StartSpan(ctx, "exec")
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("starting command: %q", err)
+		}
+		cmd.Wait()
+		span.End()
 	}
-	cmd.Wait()
 	t_wait := time.Now()
 
 	resp := protocol.InvocationResponse{
 		ExitStatus: cmd.ProcessState.ExitCode(),
 	}
 
-	resp.Stdout, err = protocol.NewBlob(ctx, store, stdout.Bytes())
-	if err != nil {
-		resp.Stdout = &protocol.Blob{Err: err.Error()}
-	}
-	resp.Stderr, err = protocol.NewBlob(ctx, store, stderr.Bytes())
-	if err != nil {
-		resp.Stderr = &protocol.Blob{Err: err.Error()}
-	}
-	for _, out := range job.Outputs {
-		file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
+	{
+		ctx, span := tracing.StartSpan(ctx, "upload")
+		resp.Stdout, err = protocol.NewBlob(ctx, store, stdout.Bytes())
 		if err != nil {
-			file = &protocol.File{
-				Blob: protocol.Blob{
-					Err: err.Error(),
-				},
-			}
+			resp.Stdout = &protocol.Blob{Err: err.Error()}
 		}
-		resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
+		resp.Stderr, err = protocol.NewBlob(ctx, store, stderr.Bytes())
+		if err != nil {
+			resp.Stderr = &protocol.Blob{Err: err.Error()}
+		}
+		for _, out := range job.Outputs {
+			file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
+			if err != nil {
+				file = &protocol.File{
+					Blob: protocol.Blob{
+						Err: err.Error(),
+					},
+				}
+			}
+			resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
+		}
+		span.End()
 	}
 	t_done := time.Now()
 
