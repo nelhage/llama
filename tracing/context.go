@@ -77,7 +77,7 @@ func SubmitAll(ctx context.Context, spans []Span) {
 }
 
 func newId() string {
-	var buf [16]byte
+	var buf [8]byte
 	if _, err := rand.Reader.Read(buf[:]); err != nil {
 		panic(fmt.Sprintf("rand: %s", err.Error()))
 	}
