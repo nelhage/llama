@@ -16,7 +16,7 @@ package server_test
 
 import (
 	"context"
-	"os"
+	"log"
 	"os/exec"
 	"path"
 	"sort"
@@ -41,8 +41,6 @@ func TestDialWithAutostart(t *testing.T) {
 	ch := make(chan result)
 	start := make(chan struct{})
 	ctx := context.Background()
-
-	os.Setenv("LLAMA_OBJECT_STORE", "s3://dummy-bucket/")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -69,8 +67,8 @@ func TestDialWithAutostart(t *testing.T) {
 		}(i)
 	}
 	go func() {
+		defer close(ch)
 		wg.Wait()
-		close(ch)
 	}()
 	close(start)
 	var results []result
@@ -85,10 +83,16 @@ func TestDialWithAutostart(t *testing.T) {
 		cl.Shutdown(&daemon.ShutdownArgs{})
 		cl.Close()
 	}
+	// TODO: It is possible that, after we shutdown the server,
+	// one of the autostarted servers is still racing to start up,
+	// notices there is no server, and grabs the socket. I don't
+	// currently see a clean way to prevent this.
+
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].i < results[j].i
 	})
 	pid := results[0].pid
+	log.Printf("server started sock=%s pid=%d", sock, pid)
 	for i, r := range results {
 		if r.pid != pid {
 			t.Errorf("client %d got pid: %d != %d", i, r.pid, pid)
