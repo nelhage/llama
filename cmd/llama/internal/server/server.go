@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -120,6 +121,10 @@ func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}
+	r, w, _ := os.Pipe()
+	go io.Copy(os.Stderr, r)
+	cmd.Stderr = w
+	cmd.Stdout = w
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
