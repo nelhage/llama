@@ -67,3 +67,7 @@ func (sp *SpanBuilder) TraceId() string {
 func (sp *SpanBuilder) Id() string {
 	return sp.span.SpanId
 }
+
+func (sp *SpanBuilder) WillSubmit() bool {
+	return sp.tracer != nil
+}
