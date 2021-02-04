@@ -51,10 +51,11 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	defer span.End()
 	span.SetLabel("function", args.Function)
 
-	// Maybe do this conditionally? Not sure
-	args.Spec.Trace = &protocol.TraceContext{
-		TraceId:  span.TraceId(),
-		ParentId: span.Id(),
+	if span.WillSubmit() {
+		args.Spec.Trace = &protocol.TraceContext{
+			TraceId:  span.TraceId(),
+			ParentId: span.Id(),
+		}
 	}
 
 	payload, err := json.Marshal(&args.Spec)
