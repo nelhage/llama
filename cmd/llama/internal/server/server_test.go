@@ -17,6 +17,7 @@ package server_test
 import (
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"path"
 	"sort"
@@ -41,6 +42,8 @@ func TestDialWithAutostart(t *testing.T) {
 	ch := make(chan result)
 	start := make(chan struct{})
 	ctx := context.Background()
+
+	os.Setenv("LLAMA_STORE", "s3://dummy-store/")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
