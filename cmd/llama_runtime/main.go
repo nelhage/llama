@@ -37,6 +37,7 @@ import (
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
+	"github.com/nelhage/llama/tracing"
 )
 
 func initStore() (store.Store, error) {
@@ -124,6 +125,36 @@ var jobs = 0
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+
+	var tracer tracing.MemoryTracer
+	var resp *protocol.InvocationResponse
+	var err error
+
+	if job.Trace != nil {
+		var span *tracing.SpanBuilder
+		ctx = tracing.WithTracer(ctx, &tracer)
+		ctx, span = tracing.StartSpanInTrace(
+			ctx, "runtime.Execute",
+			job.Trace.TraceId,
+			job.Trace.ParentId,
+		)
+		defer func() {
+			span.End()
+			if resp != nil {
+				resp.Spans = tracer.Spans
+			}
+		}()
+	}
+
+	resp, err = executeJob(ctx, store, cmdline, job)
+
+	return resp, err
+}
+
+func executeJob(ctx context.Context, store store.Store,
+	cmdline []string,
+	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+
 	jobs += 1
 
 	t_start := time.Now()
