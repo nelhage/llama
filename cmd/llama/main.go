@@ -23,6 +23,7 @@ import (
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
+	"github.com/nelhage/llama/tracing"
 )
 
 func main() {
@@ -53,12 +54,24 @@ func runLlama(ctx context.Context) int {
 	var storeOverride string
 	debugAWS := false
 	var storeConcurrency int
+	var trace string
 	flag.StringVar(&regionOverride, "region", "", "AWS region")
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.IntVar(&storeConcurrency, "s3-concurrency", defaultStoreConcurrency, "Maximum concurrent S3 uploads/downloads")
+	flag.StringVar(&trace, "trace", "", "Write tracing data to file")
 
 	flag.Parse()
+
+	if trace != "" {
+		fh, err := os.Create(trace)
+		if err != nil {
+			log.Fatalf("trace: %s", err.Error())
+		}
+		var wt *tracing.WriterTracer
+		ctx, wt = tracing.WithWriterTracer(ctx, fh)
+		defer wt.Close()
+	}
 
 	cfg, err := cli.ReadConfig(cli.ConfigPath())
 	if err != nil {

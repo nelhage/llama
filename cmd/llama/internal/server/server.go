@@ -35,6 +35,8 @@ import (
 )
 
 type Daemon struct {
+	ctx context.Context
+
 	shutdown context.CancelFunc
 	store    store.Store
 	session  *session.Session
@@ -80,6 +82,7 @@ func Start(ctx context.Context, args *StartArgs) error {
 	defer cancel()
 
 	daemon := Daemon{
+		ctx:      srvCtx,
 		shutdown: cancel,
 		store:    args.Store,
 		session:  args.Session,
