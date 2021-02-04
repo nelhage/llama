@@ -126,15 +126,7 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 				IdleTimeout: c.idleTimeout,
 			}); err != nil {
 				if c.autostart && err == server.ErrAlreadyRunning {
-					client, err := daemon.Dial(ctx, c.path)
-					if err == nil {
-						_, err = client.Ping(&daemon.PingArgs{})
-						client.Close()
-					}
-					if err == nil {
-						log.Printf("The server is already running")
-						return subcommands.ExitSuccess
-					}
+					return subcommands.ExitSuccess
 				}
 				log.Fatalf("starting daemon: %s", err)
 			}
