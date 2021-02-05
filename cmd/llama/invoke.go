@@ -26,8 +26,8 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
+	"github.com/nelhage/llama/daemon/server"
 	"github.com/nelhage/llama/files"
 )
 

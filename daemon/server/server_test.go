@@ -24,8 +24,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nelhage/llama/cmd/llama/internal/server"
 	"github.com/nelhage/llama/daemon"
+	"github.com/nelhage/llama/daemon/server"
 )
 
 func TestDialWithAutostart(t *testing.T) {
