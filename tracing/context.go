@@ -56,6 +56,14 @@ func StartSpan(ctx context.Context, name string) (context.Context, *SpanBuilder)
 	}
 }
 
+func StartPropagatedSpan(ctx context.Context, name string, p *Propagation) (context.Context, *SpanBuilder) {
+	if p == nil {
+		return StartSpan(ctx, name)
+	} else {
+		return StartSpanInTrace(ctx, name, p.TraceId, p.ParentId)
+	}
+}
+
 func StartSpanInTrace(ctx context.Context, name, trace, parent string) (context.Context, *SpanBuilder) {
 	sb := SpanBuilder{
 		span: Span{

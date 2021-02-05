@@ -27,3 +27,8 @@ type Span struct {
 	Metrics  map[string]float64 `json:"metrics"`
 	Labels   map[string]string  `json:"labels"`
 }
+
+type Propagation struct {
+	TraceId  string `json:"trace_id"`
+	ParentId string `json:"parent_id"`
+}

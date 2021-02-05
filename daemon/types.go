@@ -31,7 +31,7 @@ type ShutdownArgs struct{}
 type ShutdownReply struct{}
 
 type InvokeWithFilesArgs struct {
-	Trace      *protocol.TraceContext
+	Trace      *tracing.Propagation
 	Function   string
 	ReturnLogs bool
 	Args       []string

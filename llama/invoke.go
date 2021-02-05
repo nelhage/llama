@@ -52,10 +52,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 	span.SetLabel("function", args.Function)
 
 	if span.WillSubmit() {
-		args.Spec.Trace = &protocol.TraceContext{
-			TraceId:  span.TraceId(),
-			ParentId: span.Id(),
-		}
+		args.Spec.Trace = span.Propagation()
 	}
 
 	payload, err := json.Marshal(&args.Spec)

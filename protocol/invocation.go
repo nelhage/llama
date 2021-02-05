@@ -20,17 +20,12 @@ import (
 	"github.com/nelhage/llama/tracing"
 )
 
-type TraceContext struct {
-	TraceId  string `json:"trace_id"`
-	ParentId string `json:"parent_id"`
-}
-
 type InvocationSpec struct {
-	Trace   *TraceContext `json:"trace,omitemptry"`
-	Args    []string      `json:"args"`
-	Stdin   *Blob         `json:"stdin,omitempty"`
-	Files   FileList      `json:"files,omitempty"`
-	Outputs []string      `json:"outputs,emitempty"`
+	Trace   *tracing.Propagation `json:"trace,omitemptry"`
+	Args    []string             `json:"args"`
+	Stdin   *Blob                `json:"stdin,omitempty"`
+	Files   FileList             `json:"files,omitempty"`
+	Outputs []string             `json:"outputs,emitempty"`
 }
 
 type InvocationResponse struct {

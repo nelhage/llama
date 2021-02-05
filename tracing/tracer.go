@@ -71,3 +71,10 @@ func (sp *SpanBuilder) Id() string {
 func (sp *SpanBuilder) WillSubmit() bool {
 	return sp.tracer != nil
 }
+
+func (sp *SpanBuilder) Propagation() *Propagation {
+	return &Propagation{
+		TraceId:  sp.span.TraceId,
+		ParentId: sp.span.SpanId,
+	}
+}
