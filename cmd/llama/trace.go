@@ -30,7 +30,7 @@ import (
 )
 
 type TraceCommand struct {
-	shell bool
+	maxTrees int
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -41,6 +41,7 @@ func (*TraceCommand) Usage() string {
 }
 
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
+	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 }
 
 type Event struct {
@@ -165,6 +166,9 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 
 	trees := buildTrees(spans)
 	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
+	if c.maxTrees > 0 && len(trees) > c.maxTrees {
+		trees = trees[:c.maxTrees]
+	}
 	log.Printf("built %d trees", len(trees))
 	var events []Event
 	for i, tree := range trees {
