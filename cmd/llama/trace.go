@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/google/subcommands"
@@ -43,8 +44,8 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 }
 
 type Event struct {
-	Pid  int    `json:"pid,omitempty"`
-	Tid  int    `json:"tid,omitempty"`
+	Pid  int    `json:"pid"`
+	Tid  int    `json:"tid"`
 	Ph   string `json:"ph,omitempty"`
 	Name string `json:"name,omitempty"`
 
@@ -60,8 +61,8 @@ type TraceTree struct {
 	children []*TraceTree
 }
 
-func buildTree(spans []tracing.Span) *TraceTree {
-	var root *TraceTree
+func buildTrees(spans []tracing.Span) []*TraceTree {
+	var trees []*TraceTree
 	bySpan := make(map[string]*TraceTree)
 	for i := len(spans) - 1; i >= 0; i-- {
 		span := &spans[i]
@@ -74,7 +75,7 @@ func buildTree(spans []tracing.Span) *TraceTree {
 		}
 
 		if span.ParentId == "" {
-			root = me
+			trees = append(trees, me)
 			continue
 		}
 		if par, ok := bySpan[span.ParentId]; ok {
@@ -83,10 +84,17 @@ func buildTree(spans []tracing.Span) *TraceTree {
 			log.Printf("missing parent: %s", span.ParentId)
 		}
 	}
-	return root
+	return trees
 }
 
-func walk(min time.Time, events []Event, tree *TraceTree) []Event {
+type walker struct {
+	events []Event
+	start  time.Time
+	pid    int
+	tid    int
+}
+
+func (w *walker) walk(tree *TraceTree) {
 	args := make(map[string]interface{})
 	for k, v := range tree.span.Metrics {
 		args[k] = v
@@ -95,29 +103,32 @@ func walk(min time.Time, events []Event, tree *TraceTree) []Event {
 		args[k] = v
 	}
 
-	events = append(events, Event{
-		Pid:  1,
-		Tid:  1,
+	if tree.span.Start.Before(w.start) {
+		panic(fmt.Sprintf("out of order span=%v %s < %s", tree.span, tree.span.Start, w.start))
+	}
+
+	w.events = append(w.events, Event{
+		Pid:  w.pid,
+		Tid:  w.tid,
 		Ph:   "b",
 		Cat:  "trace",
-		Id:   1,
-		Ts:   tree.span.Start.Sub(min).Microseconds(),
+		Id:   w.tid,
+		Ts:   tree.span.Start.Sub(w.start).Microseconds(),
 		Args: args,
 		Name: tree.span.Name,
 	})
 	for _, ch := range tree.children {
-		events = walk(min, events, ch)
+		w.walk(ch)
 	}
-	events = append(events, Event{
-		Pid:  1,
-		Tid:  1,
+	w.events = append(w.events, Event{
+		Pid:  w.pid,
+		Tid:  w.tid,
 		Ph:   "e",
 		Cat:  "trace",
-		Id:   1,
-		Ts:   (tree.span.Start.Sub(min) + tree.span.Duration).Microseconds(),
+		Id:   w.tid,
+		Ts:   (tree.span.Start.Sub(w.start) + tree.span.Duration).Microseconds(),
 		Name: tree.span.Name,
 	})
-	return events
 }
 
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -132,11 +143,15 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	for {
 		var span tracing.Span
 		err := decoder.Decode(&span)
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			log.Fatalf("read json: %s", err.Error())
+		}
+		if span.SpanId == "" {
+			log.Printf("skipping bad span (n=%d): %v", len(spans), span)
+			continue
 		}
 		spans = append(spans, span)
 	}
@@ -148,17 +163,28 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		}
 	}
 
-	tree := buildTree(spans)
-
-	events := []Event{{
-		Pid:  1,
-		Tid:  1,
-		Ph:   "X",
-		Ts:   tree.span.Start.Sub(minTs).Microseconds(),
-		Dur:  tree.span.Duration.Microseconds(),
-		Name: "llama",
-	}}
-	events = walk(minTs, events, tree)
+	trees := buildTrees(spans)
+	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
+	log.Printf("built %d trees", len(trees))
+	var events []Event
+	for i, tree := range trees {
+		w := walker{
+			start:  minTs,
+			pid:    1,
+			tid:    1 + i,
+			events: events,
+		}
+		w.events = append(w.events, Event{
+			Pid:  w.pid,
+			Tid:  w.tid,
+			Ph:   "X",
+			Ts:   tree.span.Start.Sub(minTs).Microseconds(),
+			Dur:  tree.span.Duration.Microseconds(),
+			Name: tree.span.Name,
+		})
+		w.walk(tree)
+		events = w.events
+	}
 
 	out, err := json.MarshalIndent(&events, "", "  ")
 	if err != nil {
