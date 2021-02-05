@@ -45,7 +45,12 @@ func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) err
 
 func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
 	ctx := d.ctx
-	ctx, sb := tracing.StartSpan(ctx, "InvokeWithFiles")
+	var sb *tracing.SpanBuilder
+	if in.Trace == nil {
+		ctx, sb = tracing.StartSpan(ctx, "InvokeWithFiles")
+	} else {
+		ctx, sb = tracing.StartSpanInTrace(ctx, "InvokeWithFiles", in.Trace.TraceId, in.Trace.ParentId)
+	}
 	defer sb.End()
 	sb.SetLabel("function", in.Function)
 

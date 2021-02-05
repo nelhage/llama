@@ -30,6 +30,7 @@ import (
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/daemon/server"
 	"github.com/nelhage/llama/files"
+	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -93,6 +94,10 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		args.Args = append(args.Args, "-fdirectives-only", "-fpreprocessed")
 	}
 	args.Args = append(args.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
+	args.Trace = &protocol.TraceContext{
+		ParentId: span.Id(),
+		TraceId:  span.TraceId(),
+	}
 
 	out, err := client.InvokeWithFiles(&args)
 	if err != nil {
