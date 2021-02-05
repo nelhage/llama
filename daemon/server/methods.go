@@ -197,3 +197,9 @@ func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) er
 	}
 	return nil
 }
+
+func (d *Daemon) TraceSpans(in *daemon.TraceSpansArgs, out *daemon.TraceSpansReply) error {
+	tracing.SubmitAll(d.ctx, in.Spans)
+	*out = daemon.TraceSpansReply{}
+	return nil
+}

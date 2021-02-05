@@ -30,34 +30,51 @@ import (
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/daemon/server"
 	"github.com/nelhage/llama/files"
+	"github.com/nelhage/llama/tracing"
 )
 
 func runLlamaCC(cfg *Config, comp *Compilation) error {
 	var err error
-	var preprocessor exec.Cmd
 	ccpath, err := exec.LookPath(comp.Compiler())
 	wd, err := os.Getwd()
 	ctx := context.Background()
-
 	client, err := server.DialWithAutostart(ctx, cli.SocketPath())
 	if err != nil {
 		return err
 	}
-	preprocessor.Path = ccpath
-	preprocessor.Args = []string{comp.Compiler()}
-	preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
-	if !cfg.FullPreprocess {
-		preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+	defer client.Close()
+
+	mt := tracing.NewMemoryTracer(ctx)
+	ctx = tracing.WithTracer(ctx, mt)
+	ctx, span := tracing.StartSpan(ctx, "llamacc")
+	if cfg.BuildID != "" {
+		span.SetLabel("build_id", cfg.BuildID)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
+	defer func() {
+		span.End()
+		client.TraceSpans(&daemon.TraceSpansArgs{Spans: mt.Close()})
+	}()
+
 	var preprocessed bytes.Buffer
-	preprocessor.Stdout = &preprocessed
-	preprocessor.Stderr = os.Stderr
-	if cfg.Verbose {
-		log.Printf("run cpp: %q", preprocessor.Args)
-	}
-	if err := preprocessor.Run(); err != nil {
-		return err
+	{
+		var preprocessor exec.Cmd
+		_, span := tracing.StartSpan(ctx, "preprocess")
+		preprocessor.Path = ccpath
+		preprocessor.Args = []string{comp.Compiler()}
+		preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
+		if !cfg.FullPreprocess {
+			preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+		}
+		preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
+		preprocessor.Stdout = &preprocessed
+		preprocessor.Stderr = os.Stderr
+		if cfg.Verbose {
+			log.Printf("run cpp: %q", preprocessor.Args)
+		}
+		if err := preprocessor.Run(); err != nil {
+			return err
+		}
+		span.End()
 	}
 
 	args := daemon.InvokeWithFilesArgs{

@@ -47,3 +47,9 @@ func (c *Client) GetDaemonStats(in *StatsArgs) (*StatsReply, error) {
 	err := c.conn.Call("Daemon.GetDaemonStats", in, &out)
 	return &out, err
 }
+
+func (c *Client) TraceSpans(in *TraceSpansArgs) (*TraceSpansReply, error) {
+	var out TraceSpansReply
+	err := c.conn.Call("Daemon.TraceSpans", in, &out)
+	return &out, err
+}
