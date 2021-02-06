@@ -31,6 +31,7 @@ import (
 
 type TraceCommand struct {
 	maxTrees int
+	depth    int
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -42,6 +43,7 @@ func (*TraceCommand) Usage() string {
 
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
+	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
 }
 
 type Event struct {
@@ -95,7 +97,10 @@ type walker struct {
 	tid    int
 }
 
-func (w *walker) walk(tree *TraceTree) {
+func (w *walker) walk(tree *TraceTree, maxDepth int) {
+	if maxDepth == 0 {
+		return
+	}
 	args := make(map[string]interface{})
 	for k, v := range tree.span.Metrics {
 		args[k] = v
@@ -119,7 +124,7 @@ func (w *walker) walk(tree *TraceTree) {
 		Name: tree.span.Name,
 	})
 	for _, ch := range tree.children {
-		w.walk(ch)
+		w.walk(ch, maxDepth-1)
 	}
 	w.events = append(w.events, Event{
 		Pid:  w.pid,
@@ -133,6 +138,9 @@ func (w *walker) walk(tree *TraceTree) {
 }
 
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	if c.depth == 0 {
+		c.depth = 1 << 24
+	}
 	fname := flag.Arg(0)
 	fh, err := os.Open(fname)
 	if err != nil {
@@ -165,11 +173,11 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	}
 
 	trees := buildTrees(spans)
+	log.Printf("built %d trace trees", len(trees))
 	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
 	if c.maxTrees > 0 && len(trees) > c.maxTrees {
 		trees = trees[:c.maxTrees]
 	}
-	log.Printf("built %d trees", len(trees))
 	var events []Event
 	for i, tree := range trees {
 		w := walker{
@@ -186,7 +194,7 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			Dur:  tree.span.Duration.Microseconds(),
 			Name: tree.span.Name,
 		})
-		w.walk(tree)
+		w.walk(tree, c.depth)
 		events = w.events
 	}
 
