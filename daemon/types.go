@@ -19,6 +19,7 @@ import (
 
 	"github.com/nelhage/llama/files"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/tracing"
 )
 
 type PingArgs struct{}
@@ -30,6 +31,7 @@ type ShutdownArgs struct{}
 type ShutdownReply struct{}
 
 type InvokeWithFilesArgs struct {
+	Trace      *tracing.Propagation
 	Function   string
 	ReturnLogs bool
 	Args       []string
@@ -70,3 +72,9 @@ type StatsArgs struct{}
 type StatsReply struct {
 	Stats Stats
 }
+
+type TraceSpansArgs struct {
+	Spans []tracing.Span
+}
+
+type TraceSpansReply struct{}

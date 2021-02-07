@@ -14,26 +14,33 @@
 
 package protocol
 
-import "time"
+import (
+	"time"
+
+	"github.com/nelhage/llama/tracing"
+)
 
 type InvocationSpec struct {
-	Args    []string `json:"args"`
-	Stdin   *Blob    `json:"stdin,omitempty"`
-	Files   FileList `json:"files,omitempty"`
-	Outputs []string `json:"outputs,emitempty"`
+	Trace   *tracing.Propagation `json:"trace,omitemptry"`
+	Args    []string             `json:"args"`
+	Stdin   *Blob                `json:"stdin,omitempty"`
+	Files   FileList             `json:"files,omitempty"`
+	Outputs []string             `json:"outputs,emitempty"`
 }
 
 type InvocationResponse struct {
-	ExitStatus int      `json:"status"`
-	Stdout     *Blob    `json:"stdout,omitempty"`
-	Stderr     *Blob    `json:"stderr,omitempty"`
-	Outputs    FileList `json:"outputs,omitempty"`
-	Times      Timing   `json:"times"`
+	ExitStatus int            `json:"status"`
+	Stdout     *Blob          `json:"stdout,omitempty"`
+	Stderr     *Blob          `json:"stderr,omitempty"`
+	Outputs    FileList       `json:"outputs,omitempty"`
+	Spans      []tracing.Span `json:"spans,omitempty"`
+	Times      Timing         `json:"times"`
 }
 
 type Timing struct {
-	E2E    time.Duration `json:"e2e"`
-	Fetch  time.Duration `json:"fetch"`
-	Upload time.Duration `json:"upload"`
-	Exec   time.Duration `json:"exec"`
+	ColdStart bool          `json:"cold"`
+	E2E       time.Duration `json:"e2e"`
+	Fetch     time.Duration `json:"fetch"`
+	Upload    time.Duration `json:"upload"`
+	Exec      time.Duration `json:"exec"`
 }

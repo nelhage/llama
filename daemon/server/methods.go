@@ -15,7 +15,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -24,11 +23,11 @@ import (
 	"time"
 
 	"github.com/honeycombio/beeline-go"
-	"github.com/honeycombio/beeline-go/trace"
 
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/tracing"
 )
 
 func (d *Daemon) Ping(in daemon.PingArgs, reply *daemon.PingReply) error {
@@ -45,20 +44,24 @@ func (d *Daemon) Shutdown(in daemon.ShutdownArgs, out *daemon.ShutdownReply) err
 }
 
 func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.InvokeWithFilesReply) error {
-	ctx, tr := trace.NewTraceFromPropagationContext(context.Background(), nil)
-	span := tr.GetRootSpan()
-	defer span.Send()
-	span.AddField("name", "InvokeWithFiles")
-	span.AddField("function", in.Function)
+	ctx := d.ctx
+	var sb *tracing.SpanBuilder
+	if in.Trace == nil {
+		ctx, sb = tracing.StartSpan(ctx, "InvokeWithFiles")
+	} else {
+		ctx, sb = tracing.StartSpanInTrace(ctx, "InvokeWithFiles", in.Trace.TraceId, in.Trace.ParentId)
+	}
+	defer sb.End()
+	sb.SetLabel("function", in.Function)
 
 	atomic.AddUint64(&d.stats.Invocations, 1)
 	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
-	span.AddField("inflight", inflight)
+	sb.SetMetric("inflight", float64(inflight))
 	if len(in.Outputs) > 0 && in.Outputs[0].Local.Path != "" {
-		span.AddField("output", in.Outputs[0].Local.Path)
+		sb.SetLabel("output", in.Outputs[0].Local.Path)
 	}
 	if len(in.Files) > 0 && in.Files[0].Local.Path != "" {
-		span.AddField("file", in.Files[0].Local.Path)
+		sb.SetLabel("file", in.Files[0].Local.Path)
 	}
 	defer atomic.AddUint64(&d.stats.InFlight, ^uint64(0))
 	for {
@@ -97,42 +100,36 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	t_start := time.Now()
 
 	{
-		ctx, upload := beeline.StartSpan(ctx, "upload")
+		ctx, sb := tracing.StartSpan(ctx, "upload")
 		var err error
 		args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 		if err != nil {
-			span.AddField("error", fmt.Sprintf("upload: %s", err.Error()))
+			sb.SetLabel("error", fmt.Sprintf("upload: %s", err.Error()))
 			return err
 		}
 		if in.Stdin != nil {
 			args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
 			if err != nil {
-				span.AddField("error", fmt.Sprintf("stdin: %s", err.Error()))
+				sb.SetLabel("error", fmt.Sprintf("stdin: %s", err.Error()))
 				return err
 			}
 		}
 		for _, out := range in.Outputs {
 			args.Spec.Outputs = append(args.Spec.Outputs, out.Remote)
 		}
-		upload.Send()
+		sb.End()
 	}
 
 	t_invoke := time.Now()
 
-	var repl *llama.InvokeResult
-	var invokeErr error
-	{
-		ctx, invoke := beeline.StartSpan(ctx, "invoke")
-		repl, invokeErr = llama.Invoke(ctx, d.lambda, &args)
-		if invokeErr != nil {
-			span.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
-			if _, ok := invokeErr.(*llama.ErrorReturn); ok {
-				atomic.AddUint64(&d.stats.FunctionErrors, 1)
-			} else {
-				atomic.AddUint64(&d.stats.OtherErrors, 1)
-			}
+	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
+	if invokeErr != nil {
+		sb.SetLabel("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
+		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
+			atomic.AddUint64(&d.stats.FunctionErrors, 1)
+		} else {
+			atomic.AddUint64(&d.stats.OtherErrors, 1)
 		}
-		invoke.Send()
 	}
 
 	if invokeErr != nil && repl == nil {
@@ -153,7 +150,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 			fetchErr := fetchList.Fetch(ctx, d.store)
 			if fetchErr != nil {
-				span.AddField("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
+				sb.SetLabel("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
 			}
 			if invokeErr == nil {
 				invokeErr = fetchErr
@@ -185,10 +182,10 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	out.Timing.Fetch = t_end.Sub(t_fetch)
 	out.Timing.E2E = t_end.Sub(t_start)
 
-	span.AddField("dur.upload_ms", out.Timing.Upload.Milliseconds())
-	span.AddField("dur.invoke_ms", out.Timing.Invoke.Milliseconds())
-	span.AddField("dur.fetch_ms", out.Timing.Fetch.Milliseconds())
-	span.AddField("dur.e2e_ms", out.Timing.E2E.Milliseconds())
+	sb.SetMetric("upload_ms", float64(out.Timing.Upload.Milliseconds()))
+	sb.SetMetric("invoke_ms", float64(out.Timing.Invoke.Milliseconds()))
+	sb.SetMetric("fetch_ms", float64(out.Timing.Fetch.Milliseconds()))
+	sb.SetMetric("e2e_ms", float64(out.Timing.E2E.Milliseconds()))
 
 	return nil
 }
@@ -203,5 +200,11 @@ func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) er
 		// use a mutex, I guess.
 		Stats: d.stats,
 	}
+	return nil
+}
+
+func (d *Daemon) TraceSpans(in *daemon.TraceSpansArgs, out *daemon.TraceSpansReply) error {
+	tracing.SubmitAll(d.ctx, in.Spans)
+	*out = daemon.TraceSpansReply{}
 	return nil
 }

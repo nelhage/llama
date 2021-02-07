@@ -23,69 +23,89 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+
+	"context"
+
+	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/daemon"
+	"github.com/nelhage/llama/daemon/server"
+	"github.com/nelhage/llama/files"
+	"github.com/nelhage/llama/tracing"
 )
 
 func runLlamaCC(cfg *Config, comp *Compilation) error {
 	var err error
-	var preprocessor exec.Cmd
 	ccpath, err := exec.LookPath(comp.Compiler())
+	wd, err := os.Getwd()
+	ctx := context.Background()
+	client, err := server.DialWithAutostart(ctx, cli.SocketPath())
 	if err != nil {
 		return err
 	}
-	preprocessor.Path = ccpath
-	preprocessor.Args = []string{comp.Compiler()}
-	preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
-	if !cfg.FullPreprocess {
-		preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+	defer client.Close()
+
+	mt := tracing.NewMemoryTracer(ctx)
+	ctx = tracing.WithTracer(ctx, mt)
+	ctx, span := tracing.StartSpan(ctx, "llamacc")
+	if cfg.BuildID != "" {
+		span.SetLabel("build_id", cfg.BuildID)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
+	defer func() {
+		span.End()
+		client.TraceSpans(&daemon.TraceSpansArgs{Spans: mt.Close()})
+	}()
+
 	var preprocessed bytes.Buffer
-	preprocessor.Stdout = &preprocessed
-	preprocessor.Stderr = os.Stderr
-	if cfg.Verbose {
-		log.Printf("run cpp: %q", preprocessor.Args)
-	}
-	if err := preprocessor.Run(); err != nil {
-		return err
+	{
+		var preprocessor exec.Cmd
+		_, span := tracing.StartSpan(ctx, "preprocess")
+		preprocessor.Path = ccpath
+		preprocessor.Args = []string{comp.Compiler()}
+		preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
+		if !cfg.FullPreprocess {
+			preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+		}
+		preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
+		preprocessor.Stdout = &preprocessed
+		preprocessor.Stderr = os.Stderr
+		if cfg.Verbose {
+			log.Printf("run cpp: %q", preprocessor.Args)
+		}
+		if err := preprocessor.Run(); err != nil {
+			return err
+		}
+		span.End()
 	}
 
-	var compiler exec.Cmd
-	if cfg.Local {
-		compiler.Path = ccpath
-		compiler.Args = []string{comp.Compiler()}
-		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		if !cfg.FullPreprocess {
-			compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
-		}
-		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
-		compiler.Stderr = os.Stderr
-		compiler.Stdin = &preprocessed
-	} else {
-		var llama string
-		if strings.IndexRune(os.Args[0], '/') >= 0 {
-			llama = path.Join(path.Dir(os.Args[0]), "llama")
-		} else {
-			llama, err = exec.LookPath("llama")
-			if err != nil {
-				return fmt.Errorf("can't find llama executable: %s", err.Error())
-			}
-		}
-		compiler.Path = llama
-		compiler.Args = []string{"llama", "invoke", "-o", comp.Output, "-stdin", cfg.Function, comp.Compiler()}
-		compiler.Args = append(compiler.Args, comp.RemoteArgs...)
-		if !cfg.FullPreprocess {
-			compiler.Args = append(compiler.Args, "-fdirectives-only", "-fpreprocessed")
-		}
-		compiler.Args = append(compiler.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
-		compiler.Stderr = os.Stderr
-		compiler.Stdin = &preprocessed
+	args := daemon.InvokeWithFilesArgs{
+		Function: cfg.Function,
+		Outputs: []files.Mapped{
+			{
+				Local:  files.LocalFile{Path: path.Join(wd, comp.Output)},
+				Remote: comp.Output,
+			},
+		},
+		Stdin: preprocessed.Bytes(),
+		Trace: span.Propagation(),
 	}
+	args.Args = []string{comp.Compiler()}
+	args.Args = append(args.Args, comp.RemoteArgs...)
+	if !cfg.FullPreprocess {
+		args.Args = append(args.Args, "-fdirectives-only", "-fpreprocessed")
+	}
+	args.Args = append(args.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
 
-	if cfg.Verbose {
-		log.Printf("run %s: %q", comp.Compiler(), compiler.Args)
-	}
-	if err := compiler.Run(); err != nil {
+	out, err := client.InvokeWithFiles(&args)
+	if err != nil {
 		return err
+	}
+	os.Stdout.Write(out.Stdout)
+	os.Stderr.Write(out.Stderr)
+	if out.InvokeErr != "" {
+		return fmt.Errorf("invoke: %s", out.InvokeErr)
+	}
+	if out.ExitStatus != 0 {
+		return fmt.Errorf("invoke: exit %d", out.ExitStatus)
 	}
 
 	return nil
@@ -101,7 +121,14 @@ func checkSupported(cfg *Config, comp *Compilation) error {
 
 func main() {
 	cfg := ParseConfig(os.Environ())
-	comp, err := ParseCompile(&cfg, os.Args)
+	var err error
+	var comp Compilation
+	if cfg.Local {
+		err = errors.New("LLAMACC_LOCAL set")
+	}
+	if err == nil {
+		comp, err = ParseCompile(&cfg, os.Args)
+	}
 	if err == nil {
 		err = checkSupported(&cfg, &comp)
 	}

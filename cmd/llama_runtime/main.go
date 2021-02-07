@@ -37,6 +37,7 @@ import (
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
+	"github.com/nelhage/llama/tracing"
 )
 
 func initStore() (store.Store, error) {
@@ -119,9 +120,43 @@ func computeCmdline(argv []string) []string {
 	return argv
 }
 
+var jobs = 0
+
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+
+	var tracer *tracing.MemoryTracer
+	var resp *protocol.InvocationResponse
+	var err error
+
+	if job.Trace != nil {
+		var span *tracing.SpanBuilder
+		tracer = tracing.NewMemoryTracer(ctx)
+		ctx = tracing.WithTracer(ctx, tracer)
+		ctx, span = tracing.StartSpanInTrace(
+			ctx, "runtime.Execute",
+			job.Trace.TraceId,
+			job.Trace.ParentId,
+		)
+		defer func() {
+			span.End()
+			if resp != nil {
+				resp.Spans = tracer.Close()
+			}
+		}()
+	}
+
+	resp, err = executeJob(ctx, store, cmdline, job)
+
+	return resp, err
+}
+
+func executeJob(ctx context.Context, store store.Store,
+	cmdline []string,
+	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+
+	jobs += 1
 
 	t_start := time.Now()
 	parsed, err := parseJob(ctx, store, cmdline, job)
@@ -165,37 +200,46 @@ func runOne(ctx context.Context, store store.Store,
 
 	t_exec := time.Now()
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting command: %q", err)
+	{
+		_, span := tracing.StartSpan(ctx, "exec")
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("starting command: %q", err)
+		}
+		cmd.Wait()
+		span.End()
 	}
-	cmd.Wait()
 	t_wait := time.Now()
 
 	resp := protocol.InvocationResponse{
 		ExitStatus: cmd.ProcessState.ExitCode(),
 	}
 
-	resp.Stdout, err = protocol.NewBlob(ctx, store, stdout.Bytes())
-	if err != nil {
-		resp.Stdout = &protocol.Blob{Err: err.Error()}
-	}
-	resp.Stderr, err = protocol.NewBlob(ctx, store, stderr.Bytes())
-	if err != nil {
-		resp.Stderr = &protocol.Blob{Err: err.Error()}
-	}
-	for _, out := range job.Outputs {
-		file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
+	{
+		ctx, span := tracing.StartSpan(ctx, "upload")
+		resp.Stdout, err = protocol.NewBlob(ctx, store, stdout.Bytes())
 		if err != nil {
-			file = &protocol.File{
-				Blob: protocol.Blob{
-					Err: err.Error(),
-				},
-			}
+			resp.Stdout = &protocol.Blob{Err: err.Error()}
 		}
-		resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
+		resp.Stderr, err = protocol.NewBlob(ctx, store, stderr.Bytes())
+		if err != nil {
+			resp.Stderr = &protocol.Blob{Err: err.Error()}
+		}
+		for _, out := range job.Outputs {
+			file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
+			if err != nil {
+				file = &protocol.File{
+					Blob: protocol.Blob{
+						Err: err.Error(),
+					},
+				}
+			}
+			resp.Outputs = append(resp.Outputs, protocol.FileAndPath{Path: out, File: *file})
+		}
+		span.End()
 	}
 	t_done := time.Now()
 
+	resp.Times.ColdStart = jobs == 1
 	resp.Times.Fetch = t_exec.Sub(t_start)
 	resp.Times.Exec = t_wait.Sub(t_exec)
 	resp.Times.Upload = t_done.Sub(t_wait)

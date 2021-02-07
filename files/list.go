@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"runtime/trace"
 	"strings"
 	"sync"
 
@@ -111,36 +110,31 @@ func uploadWorker(ctx context.Context, store store.Store, jobs <-chan Mapped, ou
 const uploadConcurrency = 32
 
 func (f List) Upload(ctx context.Context, store store.Store, files protocol.FileList) (protocol.FileList, error) {
-	var outErr error
-	trace.WithRegion(ctx, "uploadFiles", func() {
-		var wg sync.WaitGroup
-		jobs := make(chan Mapped)
-		out := make(chan *protocol.FileAndPath)
+	var wg sync.WaitGroup
+	jobs := make(chan Mapped)
+	out := make(chan *protocol.FileAndPath)
 
-		go func() {
-			defer close(jobs)
-			for _, file := range f {
-				jobs <- file
-			}
-		}()
-		for i := 0; i < uploadConcurrency; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				uploadWorker(ctx, store, jobs, out)
-			}()
+	go func() {
+		defer close(jobs)
+		for _, file := range f {
+			jobs <- file
 		}
+	}()
+	for i := 0; i < uploadConcurrency; i++ {
+		wg.Add(1)
 		go func() {
-			wg.Wait()
-			close(out)
+			defer wg.Done()
+			uploadWorker(ctx, store, jobs, out)
 		}()
-		for file := range out {
-			files = append(files, *file)
-		}
-	})
-	if outErr != nil {
-		return nil, outErr
 	}
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	for file := range out {
+		files = append(files, *file)
+	}
+
 	return files, nil
 }
 

@@ -25,6 +25,7 @@ type Config struct {
 	RemoteAssemble bool
 	FullPreprocess bool
 	Function       string
+	BuildID        string
 }
 
 var DefaultConfig = Config{
@@ -54,6 +55,8 @@ func ParseConfig(env []string) Config {
 			out.Function = val
 		case "FULL_PREPROCESS":
 			out.FullPreprocess = val != ""
+		case "BUILD_ID":
+			out.BuildID = val
 		default:
 			log.Printf("llamacc: unknown env var: %s", ev)
 		}

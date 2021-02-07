@@ -19,11 +19,11 @@ import (
 	"flag"
 	"log"
 	"os"
-	"runtime/trace"
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
+	"github.com/nelhage/llama/tracing"
 )
 
 func main() {
@@ -39,6 +39,7 @@ func main() {
 
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")
+	subcommands.Register(&TraceCommand{}, "tracing")
 
 	subcommands.ImportantFlag("region")
 
@@ -53,15 +54,25 @@ func runLlama(ctx context.Context) int {
 	var regionOverride string
 	var storeOverride string
 	debugAWS := false
-	var traceFile string
 	var storeConcurrency int
+	var trace string
 	flag.StringVar(&regionOverride, "region", "", "AWS region")
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
-	flag.StringVar(&traceFile, "trace", "", "Log trace to file")
 	flag.IntVar(&storeConcurrency, "s3-concurrency", defaultStoreConcurrency, "Maximum concurrent S3 uploads/downloads")
+	flag.StringVar(&trace, "trace", "", "Write tracing data to file")
 
 	flag.Parse()
+
+	if trace != "" {
+		fh, err := os.Create(trace)
+		if err != nil {
+			log.Fatalf("trace: %s", err.Error())
+		}
+		var wt *tracing.WriterTracer
+		ctx, wt = tracing.WithWriterTracer(ctx, fh)
+		defer wt.Close()
+	}
 
 	cfg, err := cli.ReadConfig(cli.ConfigPath())
 	if err != nil {
@@ -81,19 +92,6 @@ func runLlama(ctx context.Context) int {
 		cfg.Region = regionOverride
 	}
 	cfg.DebugAWS = debugAWS
-
-	if traceFile != "" {
-		f, err := os.Create(traceFile)
-		if err != nil {
-			log.Fatalf("open trace: %s", err.Error())
-		}
-		defer f.Close()
-		trace.Start(f)
-		defer trace.Stop()
-	}
-
-	ctx, task := trace.NewTask(ctx, "llama")
-	defer task.End()
 
 	var state cli.GlobalState
 	state.Config = cfg
