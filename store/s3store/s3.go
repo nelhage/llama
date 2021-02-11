@@ -31,13 +31,22 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+type Options struct {
+	DisableHeadCheck bool
+}
+
 type Store struct {
+	opts    Options
 	session *session.Session
 	s3      *s3.S3
 	url     *url.URL
 }
 
 func FromSession(s *session.Session, address string) (*Store, error) {
+	return FromSessionAndOptions(s, address, Options{})
+}
+
+func FromSessionAndOptions(s *session.Session, address string, opts Options) (*Store, error) {
 	u, e := url.Parse(address)
 	if e != nil {
 		return nil, fmt.Errorf("Parsing store: %q: %w", address, e)
@@ -46,6 +55,7 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 		return nil, fmt.Errorf("Object store: %q: unsupported scheme %s", address, u.Scheme)
 	}
 	return &Store{
+		opts:    opts,
 		session: s,
 		s3:      s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true)),
 		url:     u,
@@ -62,18 +72,20 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 	span.SetLabel("object_id", id)
 
-	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-		Bucket: &s.url.Host,
-		Key:    key,
-	})
-	if err == nil {
-		span.SetLabel("s3.exists", "true")
-		return id, nil
-	}
-	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
-		// 404 not found -- do the upload
-	} else {
-		return "", err
+	if !s.opts.DisableHeadCheck {
+		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+			Bucket: &s.url.Host,
+			Key:    key,
+		})
+		if err == nil {
+			span.SetLabel("s3.exists", "true")
+			return id, nil
+		}
+		if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
+			// 404 not found -- do the upload
+		} else {
+			return "", err
+		}
 	}
 
 	span.SetMetric("write_bytes", float64(len(obj)))

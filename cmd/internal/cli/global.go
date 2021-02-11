@@ -16,6 +16,7 @@ package cli
 
 import (
 	"log"
+	"os"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -73,7 +74,11 @@ func (g *GlobalState) Store() (store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	g.store, err = s3store.FromSession(sess, g.Config.Store)
+	var opts s3store.Options
+	if os.Getenv("LLAMA_SIMULATE_COLD_STORE") != "" {
+		opts.DisableHeadCheck = true
+	}
+	g.store, err = s3store.FromSessionAndOptions(sess, g.Config.Store, opts)
 	if err != nil {
 		return nil, err
 	}
