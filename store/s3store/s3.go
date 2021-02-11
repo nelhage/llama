@@ -88,7 +88,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		}
 	}
 
-	span.SetMetric("write_bytes", float64(len(obj)))
+	span.SetMetric("s3.write_bytes", float64(len(obj)))
 
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(obj),
@@ -124,7 +124,7 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
 
-	span.SetMetric("s3.write_bytes", float64(len(body)))
+	span.SetMetric("s3.read_bytes", float64(len(body)))
 
 	return body, nil
 }
