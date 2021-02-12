@@ -101,13 +101,6 @@ func (w *walker) walk(tree *TraceTree, maxDepth int) {
 	if maxDepth == 0 {
 		return
 	}
-	args := make(map[string]interface{})
-	for k, v := range tree.span.Metrics {
-		args[k] = v
-	}
-	for k, v := range tree.span.Labels {
-		args[k] = v
-	}
 
 	if tree.span.Start.Before(w.start) {
 		panic(fmt.Sprintf("out of order span=%v %s < %s", tree.span, tree.span.Start, w.start))
@@ -120,7 +113,7 @@ func (w *walker) walk(tree *TraceTree, maxDepth int) {
 		Cat:  "trace",
 		Id:   w.tid,
 		Ts:   tree.span.Start.Sub(w.start).Microseconds(),
-		Args: args,
+		Args: tree.span.Fields,
 		Name: tree.span.Name,
 	})
 	for _, ch := range tree.children {

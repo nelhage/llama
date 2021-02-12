@@ -70,7 +70,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
-	span.SetLabel("object_id", id)
+	span.AddField("object_id", id)
 
 	if !s.opts.DisableHeadCheck {
 		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
@@ -78,7 +78,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 			Key:    key,
 		})
 		if err == nil {
-			span.SetLabel("s3.exists", "true")
+			span.AddField("s3.exists", true)
 			return id, nil
 		}
 		if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
@@ -88,7 +88,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		}
 	}
 
-	span.SetMetric("s3.write_bytes", float64(len(obj)))
+	span.AddField("s3.write_bytes", len(obj))
 
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(obj),
@@ -104,7 +104,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get")
 	defer span.End()
-	span.SetLabel("object_id", id)
+	span.AddField("object_id", id)
 
 	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: &s.url.Host,
@@ -124,7 +124,7 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
 
-	span.SetMetric("s3.read_bytes", float64(len(body)))
+	span.AddField("s3.read_bytes", len(body))
 
 	return body, nil
 }

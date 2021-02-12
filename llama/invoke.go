@@ -49,7 +49,7 @@ func (e *ErrorReturn) Error() string {
 func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeResult, error) {
 	ctx, span := tracing.StartSpan(ctx, "llama.Invoke")
 	defer span.End()
-	span.SetLabel("function", args.Function)
+	span.AddField("function", args.Function)
 
 	if span.WillSubmit() {
 		args.Spec.Trace = span.Propagation()
@@ -60,7 +60,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	span.SetMetric("payload_bytes", float64(len(payload)))
+	span.AddField("payload_bytes", len(payload))
 
 	input := lambda.InvokeInput{
 		FunctionName: &args.Function,
@@ -87,7 +87,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		}
 	}
 
-	span.SetMetric("response_bytes", float64(len(resp.Payload)))
+	span.AddField("response_bytes", len(resp.Payload))
 
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {
 		return nil, fmt.Errorf("unmarshal: %q", err)
@@ -95,12 +95,12 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 
 	tracing.SubmitAll(ctx, out.Response.Spans)
 
-	span.SetMetric("e2e_ms", float64(out.Response.Times.E2E.Milliseconds()))
-	span.SetMetric("fetch_ms", float64(out.Response.Times.Fetch.Milliseconds()))
-	span.SetMetric("exec_ms", float64(out.Response.Times.Exec.Milliseconds()))
-	span.SetMetric("upload_ms", float64(out.Response.Times.Upload.Milliseconds()))
+	span.AddField("e2e_ms", out.Response.Times.E2E.Milliseconds())
+	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())
+	span.AddField("exec_ms", out.Response.Times.Exec.Milliseconds())
+	span.AddField("upload_ms", out.Response.Times.Upload.Milliseconds())
 	if out.Response.Times.ColdStart {
-		span.SetLabel("cold_start", "true")
+		span.AddField("cold_start", true)
 	}
 
 	return &out, nil

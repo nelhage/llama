@@ -21,11 +21,10 @@ type Span struct {
 	SpanId   string `json:"span_id"`
 	ParentId string `json:"parent_id"`
 
-	Name     string             `json:"name"`
-	Start    time.Time          `json:"start"`
-	Duration time.Duration      `json:"duration"`
-	Metrics  map[string]float64 `json:"metrics"`
-	Labels   map[string]string  `json:"labels"`
+	Name     string                 `json:"name"`
+	Start    time.Time              `json:"start"`
+	Duration time.Duration          `json:"duration"`
+	Fields   map[string]interface{} `json:"fields"`
 }
 
 type Propagation struct {

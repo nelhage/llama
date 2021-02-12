@@ -47,16 +47,16 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	ctx := d.ctx
 	ctx, sb := tracing.StartPropagatedSpan(ctx, "InvokeWithFiles", in.Trace)
 	defer sb.End()
-	sb.SetLabel("function", in.Function)
+	sb.AddField("function", in.Function)
 
 	atomic.AddUint64(&d.stats.Invocations, 1)
 	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
-	sb.SetMetric("inflight", float64(inflight))
+	sb.AddField("inflight", float64(inflight))
 	if len(in.Outputs) > 0 && in.Outputs[0].Local.Path != "" {
-		sb.SetLabel("output", in.Outputs[0].Local.Path)
+		sb.AddField("output", in.Outputs[0].Local.Path)
 	}
 	if len(in.Files) > 0 && in.Files[0].Local.Path != "" {
-		sb.SetLabel("file", in.Files[0].Local.Path)
+		sb.AddField("file", in.Files[0].Local.Path)
 	}
 	defer atomic.AddUint64(&d.stats.InFlight, ^uint64(0))
 	for {
@@ -99,13 +99,13 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 		var err error
 		args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 		if err != nil {
-			sb.SetLabel("error", fmt.Sprintf("upload: %s", err.Error()))
+			sb.AddField("error", fmt.Sprintf("upload: %s", err.Error()))
 			return err
 		}
 		if in.Stdin != nil {
 			args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
 			if err != nil {
-				sb.SetLabel("error", fmt.Sprintf("stdin: %s", err.Error()))
+				sb.AddField("error", fmt.Sprintf("stdin: %s", err.Error()))
 				return err
 			}
 		}
@@ -119,7 +119,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
 	if invokeErr != nil {
-		sb.SetLabel("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
+		sb.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
 		if _, ok := invokeErr.(*llama.ErrorReturn); ok {
 			atomic.AddUint64(&d.stats.FunctionErrors, 1)
 		} else {
@@ -145,7 +145,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 			fetchErr := fetchList.Fetch(ctx, d.store)
 			if fetchErr != nil {
-				sb.SetLabel("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
+				sb.AddField("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
 			}
 			if invokeErr == nil {
 				invokeErr = fetchErr
@@ -177,10 +177,10 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	out.Timing.Fetch = t_end.Sub(t_fetch)
 	out.Timing.E2E = t_end.Sub(t_start)
 
-	sb.SetMetric("upload_ms", float64(out.Timing.Upload.Milliseconds()))
-	sb.SetMetric("invoke_ms", float64(out.Timing.Invoke.Milliseconds()))
-	sb.SetMetric("fetch_ms", float64(out.Timing.Fetch.Milliseconds()))
-	sb.SetMetric("e2e_ms", float64(out.Timing.E2E.Milliseconds()))
+	sb.AddField("upload_ms", out.Timing.Upload.Milliseconds())
+	sb.AddField("invoke_ms", out.Timing.Invoke.Milliseconds())
+	sb.AddField("fetch_ms", out.Timing.Fetch.Milliseconds())
+	sb.AddField("e2e_ms", out.Timing.E2E.Milliseconds())
 
 	return nil
 }

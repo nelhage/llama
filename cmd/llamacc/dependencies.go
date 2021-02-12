@@ -52,12 +52,12 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 	if cfg.Verbose {
 		log.Printf("run cpp -MM: %q", preprocessor.Args)
 	}
-	span.SetMetric("argc", float64(len(preprocessor.Args)))
+	span.AddField("argc", len(preprocessor.Args))
 	if err := preprocessor.Run(); err != nil {
 		return nil, err
 	}
 	deplist, err := parseMakeDeps(deps.Bytes())
-	span.SetMetric("count", float64(len(deplist)))
+	span.AddField("count", len(deplist))
 	return deplist, err
 }
 
