@@ -20,9 +20,14 @@ import (
 	"log"
 	"os"
 	"os/exec"
+
+	"github.com/nelhage/llama/tracing"
 )
 
 func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
+	_, span := tracing.StartSpan(ctx, "detect_dependencies")
+	defer span.End()
+
 	var preprocessor exec.Cmd
 	ccpath, err := exec.LookPath(comp.Compiler())
 	if err != nil {
@@ -47,10 +52,13 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 	if cfg.Verbose {
 		log.Printf("run cpp -MM: %q", preprocessor.Args)
 	}
+	span.SetMetric("argc", float64(len(preprocessor.Args)))
 	if err := preprocessor.Run(); err != nil {
 		return nil, err
 	}
-	return parseMakeDeps(deps.Bytes())
+	deplist, err := parseMakeDeps(deps.Bytes())
+	span.SetMetric("count", float64(len(deplist)))
+	return deplist, err
 }
 
 func parseMakeDeps(buf []byte) ([]string, error) {
