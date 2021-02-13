@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,6 +24,8 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/subcommands"
@@ -32,6 +35,7 @@ import (
 type TraceCommand struct {
 	maxTrees int
 	depth    int
+	csv      string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -44,6 +48,7 @@ func (*TraceCommand) Usage() string {
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
+	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
 }
 
 type Event struct {
@@ -163,6 +168,110 @@ func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) 
 	}
 }
 
+func stringify(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+func treeToCSV(w *csv.Writer, fields []string, tree *TraceTree) {
+	var words []string
+	var walk func(t *TraceTree, path string)
+
+	global := make(map[string]interface{})
+	var collect func(t *TraceTree)
+	collect = func(t *TraceTree) {
+		if t.span.Fields != nil {
+			for k, v := range t.span.Fields {
+				if strings.HasPrefix(k, "global.") {
+					global[k] = v
+				}
+			}
+		}
+		for _, ch := range t.children {
+			collect(ch)
+		}
+	}
+	collect(tree)
+
+	walk = func(t *TraceTree, path string) {
+		if path == "" {
+			path = t.span.Name
+		} else {
+			path = fmt.Sprintf("%s>%s", path, t.span.Name)
+		}
+		words = append(words[:0],
+			t.span.TraceId, t.span.ParentId, t.span.SpanId,
+			path, t.span.Start.Format(time.RFC3339Nano),
+			strconv.FormatInt(t.span.Duration.Nanoseconds(), 10),
+		)
+		for _, f := range fields {
+			var v interface{}
+			if t.span.Fields != nil {
+				v = t.span.Fields[f]
+			}
+			if v == nil {
+				v = global[f]
+			}
+
+			words = append(words, stringify(v))
+		}
+		w.Write(words)
+		for _, child := range t.children {
+			walk(child, path)
+		}
+	}
+	walk(tree, "")
+}
+
+func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error {
+	fieldset := make(map[string]struct{})
+	for _, sp := range spans {
+		if sp.Fields == nil {
+			continue
+		}
+		for key := range sp.Fields {
+			fieldset[key] = struct{}{}
+		}
+	}
+
+	var fields []string
+	for f := range fieldset {
+		fields = append(fields, f)
+	}
+
+	sort.Slice(fields, func(i, j int) bool { return fields[i] < fields[j] })
+
+	fh, err := os.Create(c.csv)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+	w := csv.NewWriter(fh)
+	defer w.Flush()
+
+	headers := []string{
+		"trace", "parent", "span", "path", "start", "duration_ns",
+	}
+	headers = append(headers, fields...)
+	w.Write(headers)
+
+	for _, tree := range trees {
+		treeToCSV(w, fields, tree)
+	}
+
+	return nil
+}
+
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.depth == 0 {
 		c.depth = 1 << 24
@@ -233,6 +342,13 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		log.Fatalf("marshal: %v", err)
 	}
 	fmt.Printf("%s\n", out)
+
+	if *&c.csv != "" {
+		err := c.WriteCSV(spans, trees)
+		if err != nil {
+			log.Fatalf("write csv: %s", err.Error())
+		}
+	}
 
 	return subcommands.ExitFailure
 }

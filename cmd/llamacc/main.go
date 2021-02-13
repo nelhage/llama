@@ -47,7 +47,7 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 	ctx = tracing.WithTracer(ctx, mt)
 	ctx, span := tracing.StartSpan(ctx, "llamacc")
 	if cfg.BuildID != "" {
-		span.AddField("build_id", cfg.BuildID)
+		span.AddField("global.build_id", cfg.BuildID)
 	}
 	defer func() {
 		span.End()
