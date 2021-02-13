@@ -130,6 +130,39 @@ func (w *walker) walk(tree *TraceTree, maxDepth int) {
 	})
 }
 
+func fixupSpans(t *TraceTree) {
+	fixupBounds(t, t.span.Start, t.span.Start.Add(t.span.Duration), 0)
+}
+
+func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) {
+	tree.span.Start = tree.span.Start.Add(correction)
+	if tree.span.Start.Before(min) {
+		delta := min.Sub(tree.span.Start)
+		// log.Printf("span starts before parent id=%s parent=%s d=%s start=%s parent_start=%s",
+		//  tree.span.SpanId, tree.span.ParentId, delta, tree.span.Start, min)
+		correction += delta
+		tree.span.Start = min
+	}
+	end := tree.span.Start.Add(tree.span.Duration)
+	if max.Before(end) {
+		// log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
+		//  tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
+		delta := end.Sub(max)
+		if tree.span.Start.Add(-delta).After(min) {
+			correction -= delta
+			tree.span.Start = tree.span.Start.Add(-delta)
+			end = tree.span.Start.Add(tree.span.Duration)
+		} else {
+			log.Printf("child is longer than parent span=%s?", tree.span.SpanId)
+			tree.span.Duration = max.Sub(tree.span.Start)
+			end = max
+		}
+	}
+	for _, ch := range tree.children {
+		fixupBounds(ch, tree.span.Start, end, correction)
+	}
+}
+
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.depth == 0 {
 		c.depth = 1 << 24
@@ -166,6 +199,10 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	}
 
 	trees := buildTrees(spans)
+	for _, t := range trees {
+		fixupSpans(t)
+	}
+
 	log.Printf("built %d trace trees", len(trees))
 	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
 	if c.maxTrees > 0 && len(trees) > c.maxTrees {
