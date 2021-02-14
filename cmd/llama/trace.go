@@ -183,7 +183,7 @@ func stringify(v interface{}) string {
 	}
 }
 
-func treeToCSV(w *csv.Writer, fields []string, tree *TraceTree) {
+func treeToCSV(w *csv.Writer, tree *TraceTree) {
 	var words []string
 	var walk func(t *TraceTree, path string)
 
@@ -214,17 +214,18 @@ func treeToCSV(w *csv.Writer, fields []string, tree *TraceTree) {
 			path, t.span.Start.Format(time.RFC3339Nano),
 			strconv.FormatInt(t.span.Duration.Nanoseconds(), 10),
 		)
-		for _, f := range fields {
-			var v interface{}
-			if t.span.Fields != nil {
-				v = t.span.Fields[f]
-			}
-			if v == nil {
-				v = global[f]
-			}
-
-			words = append(words, stringify(v))
+		fields := make(map[string]interface{}, len(global)+len(t.span.Fields))
+		for k, v := range global {
+			fields[k] = v
 		}
+		for k, v := range t.span.Fields {
+			fields[k] = v
+		}
+		out, err := json.Marshal(fields)
+		if err != nil {
+			panic("json marshal")
+		}
+		words = append(words, string(out))
 		w.Write(words)
 		for _, child := range t.children {
 			walk(child, path)
@@ -234,23 +235,6 @@ func treeToCSV(w *csv.Writer, fields []string, tree *TraceTree) {
 }
 
 func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error {
-	fieldset := make(map[string]struct{})
-	for _, sp := range spans {
-		if sp.Fields == nil {
-			continue
-		}
-		for key := range sp.Fields {
-			fieldset[key] = struct{}{}
-		}
-	}
-
-	var fields []string
-	for f := range fieldset {
-		fields = append(fields, f)
-	}
-
-	sort.Slice(fields, func(i, j int) bool { return fields[i] < fields[j] })
-
 	fh, err := os.Create(c.csv)
 	if err != nil {
 		return err
@@ -260,13 +244,12 @@ func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error 
 	defer w.Flush()
 
 	headers := []string{
-		"trace", "parent", "span", "path", "start", "duration_ns",
+		"trace", "parent", "span", "path", "start", "duration_ns", "fields",
 	}
-	headers = append(headers, fields...)
 	w.Write(headers)
 
 	for _, tree := range trees {
-		treeToCSV(w, fields, tree)
+		treeToCSV(w, tree)
 	}
 
 	return nil
