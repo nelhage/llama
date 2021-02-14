@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/tracing"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -89,6 +90,8 @@ func fetchWorker(ctx context.Context, store store.Store, files <-chan FileAndPat
 const fetchConcurrency = 32
 
 func (f FileList) Fetch(ctx context.Context, store store.Store) error {
+	ctx, span := tracing.StartSpan(ctx, "FileList.fetch")
+	defer span.End()
 	grp, ctx := errgroup.WithContext(ctx)
 	jobs := make(chan FileAndPath)
 
