@@ -210,9 +210,53 @@ func replaceExt(file string, newExt string) string {
 	return file[:len(file)-len(ext)] + newExt
 }
 
+func rewriteWp(args []string) []string {
+	var out []string
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "-Wp,") {
+			if out == nil {
+				out = make([]string, 0, len(args))
+				out = append(out, args[:i]...)
+			}
+			arg = strings.TrimPrefix(arg, "-Wp,")
+			for arg != "" {
+				next := strings.IndexRune(arg, ',')
+				if next < 0 {
+					out = append(out, arg)
+					break
+				}
+				word := arg[:next]
+				out = append(out, word)
+				arg = arg[next+1:]
+
+				if word == "-MD" || word == "-MMD" && arg != "" {
+					next = strings.IndexRune(arg, ',')
+					var word string
+					if next < 0 {
+						word = arg
+						arg = ""
+					} else {
+						word = arg[:next]
+						arg = arg[next+1:]
+					}
+					out = append(out, "-MF", word)
+				}
+			}
+		} else if out != nil {
+			out = append(out, arg)
+		}
+	}
+	if out != nil {
+		return out
+	}
+	return args
+}
+
 func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 	var out Compilation
 	args := argv[1:]
+
+	args = rewriteWp(args)
 
 	i := 0
 	for i < len(args) {

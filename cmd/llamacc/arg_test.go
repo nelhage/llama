@@ -116,3 +116,27 @@ func TestParseCompile(t *testing.T) {
 		})
 	}
 }
+
+func TestRewriteWp(t *testing.T) {
+	cases := []struct {
+		in  []string
+		out []string
+	}{
+		{
+			[]string{"-Wall"},
+			[]string{"-Wall"},
+		},
+		{
+			[]string{"-Wp,-MD,foo.d"},
+			[]string{"-MD", "-MF", "foo.d"},
+		},
+		{
+			[]string{"-Wp,-MD,foo.d,-g"},
+			[]string{"-MD", "-MF", "foo.d", "-g"},
+		},
+	}
+	for _, tc := range cases {
+		got := rewriteWp(tc.in)
+		assert.Equal(t, tc.out, got)
+	}
+}
