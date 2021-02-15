@@ -124,6 +124,7 @@ func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*da
 
 	args.Args = []string{comp.Compiler()}
 
+	args.Args = append(args.Args, "-I", toRemote(".", wd))
 	for _, inc := range comp.Includes {
 		args.Args = append(args.Args, inc.Opt, toRemote(inc.Path, wd))
 	}
