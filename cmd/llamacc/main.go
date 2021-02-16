@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -94,7 +95,24 @@ func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Conf
 		return fmt.Errorf("invoke: exit %d", out.ExitStatus)
 	}
 
+	if comp.Flag.MF != "" {
+		return rewriteMF(ctx, comp)
+	}
+
 	return nil
+}
+
+func rewriteMF(ctx context.Context, comp *Compilation) error {
+	tmpMF := comp.Flag.MF + ".tmp"
+	data, err := ioutil.ReadFile(tmpMF)
+	if err != nil {
+		return err
+	}
+	data = bytes.ReplaceAll(data, []byte("_root/"), []byte("/"))
+	if err := ioutil.WriteFile(comp.Flag.MF, data, 0644); err != nil {
+		return err
+	}
+	return os.Remove(tmpMF)
 }
 
 func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
@@ -115,7 +133,7 @@ func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*da
 	args.Outputs = args.Outputs.Append(remap(comp.Output, wd))
 
 	if comp.Flag.MF != "" {
-		args.Outputs = args.Outputs.Append(remap(comp.Flag.MF, wd))
+		args.Outputs = args.Outputs.Append(remap(comp.Flag.MF+".tmp", wd))
 	}
 	args.Files = args.Files.Append(remap(comp.Input, wd))
 	for _, dep := range deps {
@@ -141,7 +159,7 @@ func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*da
 		args.Args = append(args.Args, "-MMD")
 	}
 	if comp.Flag.MF != "" {
-		args.Args = append(args.Args, "-MF", toRemote(comp.Flag.MF, wd))
+		args.Args = append(args.Args, "-MF", toRemote(comp.Flag.MF+".tmp", wd))
 	}
 	args.Args = append(args.Args, comp.UnknownArgs...)
 	if cfg.Verbose {
