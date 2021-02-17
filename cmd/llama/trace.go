@@ -33,9 +33,10 @@ import (
 )
 
 type TraceCommand struct {
-	maxTrees int
-	depth    int
-	csv      string
+	maxTrees    int
+	depth       int
+	csv         string
+	traceViewer string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -49,6 +50,7 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
+	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 }
 
 type Event struct {
@@ -255,6 +257,48 @@ func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error 
 	return nil
 }
 
+func (c *TraceCommand) WriteTraceViewer(spans []tracing.Span, trees []*TraceTree) error {
+	fh, err := os.Create(c.traceViewer)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+
+	var minTs time.Time
+	for _, span := range spans {
+		if minTs.IsZero() || span.Start.Before(minTs) {
+			minTs = span.Start
+		}
+	}
+
+	var events []Event
+	for i, tree := range trees {
+		w := walker{
+			start:  minTs,
+			pid:    1,
+			tid:    1 + i,
+			events: events,
+		}
+		w.events = append(w.events, Event{
+			Pid:  w.pid,
+			Tid:  w.tid,
+			Ph:   "X",
+			Ts:   tree.span.Start.Sub(minTs).Microseconds(),
+			Dur:  tree.span.Duration.Microseconds(),
+			Name: tree.span.Name,
+		})
+		w.walk(tree, c.depth)
+		events = w.events
+	}
+
+	out, err := json.MarshalIndent(&events, "", "  ")
+	if err != nil {
+		log.Fatalf("marshal: %v", err)
+	}
+	fmt.Fprintf(fh, "%s\n", out)
+	return nil
+}
+
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.depth == 0 {
 		c.depth = 1 << 24
@@ -283,13 +327,6 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		spans = append(spans, span)
 	}
 
-	var minTs time.Time
-	for _, span := range spans {
-		if minTs.IsZero() || span.Start.Before(minTs) {
-			minTs = span.Start
-		}
-	}
-
 	trees := buildTrees(spans)
 	for _, t := range trees {
 		fixupSpans(t)
@@ -300,31 +337,13 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	if c.maxTrees > 0 && len(trees) > c.maxTrees {
 		trees = trees[:c.maxTrees]
 	}
-	var events []Event
-	for i, tree := range trees {
-		w := walker{
-			start:  minTs,
-			pid:    1,
-			tid:    1 + i,
-			events: events,
-		}
-		w.events = append(w.events, Event{
-			Pid:  w.pid,
-			Tid:  w.tid,
-			Ph:   "X",
-			Ts:   tree.span.Start.Sub(minTs).Microseconds(),
-			Dur:  tree.span.Duration.Microseconds(),
-			Name: tree.span.Name,
-		})
-		w.walk(tree, c.depth)
-		events = w.events
-	}
 
-	out, err := json.MarshalIndent(&events, "", "  ")
-	if err != nil {
-		log.Fatalf("marshal: %v", err)
+	if c.traceViewer != "" {
+		err := c.WriteTraceViewer(spans, trees)
+		if err != nil {
+			log.Fatalf("trace viewer: %s", err.Error())
+		}
 	}
-	fmt.Printf("%s\n", out)
 
 	if *&c.csv != "" {
 		err := c.WriteCSV(spans, trees)
