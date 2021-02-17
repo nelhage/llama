@@ -37,12 +37,13 @@ type TraceCommand struct {
 	depth       int
 	csv         string
 	traceViewer string
+	trace       string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
 func (*TraceCommand) Synopsis() string { return "Manipulate llama trace files" }
 func (*TraceCommand) Usage() string {
-	return `trace file.trace]
+	return `trace OPTIONS file.trace
 `
 }
 
@@ -51,6 +52,7 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
+	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
 }
 
 type Event struct {
@@ -322,6 +324,9 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		}
 		if span.SpanId == "" {
 			log.Printf("skipping bad span (n=%d): %v", len(spans), span)
+			continue
+		}
+		if c.trace != "" && span.TraceId != c.trace {
 			continue
 		}
 		spans = append(spans, span)
