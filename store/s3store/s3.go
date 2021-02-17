@@ -26,6 +26,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/nelhage/llama/tracing"
@@ -75,10 +76,14 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	if u.Scheme != "s3" {
 		return nil, fmt.Errorf("Object store: %q: unsupported scheme %s", address, u.Scheme)
 	}
+	svc := s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true))
+	svc.Handlers.Sign.PushFront(func(r *request.Request) {
+		r.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
+	})
 	return &Store{
 		opts:    opts,
 		session: s,
-		s3:      s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true)),
+		s3:      svc,
 		url:     u,
 		cache: cache{
 			seen: make(map[string]struct{}),
