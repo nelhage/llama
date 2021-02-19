@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package trace
 
 import (
 	"context"
@@ -38,6 +38,7 @@ type TraceCommand struct {
 	csv         string
 	traceViewer string
 	trace       string
+	jaeger      string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -52,25 +53,25 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
+	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
 	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
-}
-
-type Event struct {
-	Pid  int    `json:"pid"`
-	Tid  int    `json:"tid"`
-	Ph   string `json:"ph,omitempty"`
-	Name string `json:"name,omitempty"`
-
-	Cat  string                 `json:"cat,omitempty"`
-	Id   int                    `json:"id,omitempty"`
-	Ts   int64                  `json:"ts"`
-	Dur  int64                  `json:"dur,omitempty"`
-	Args map[string]interface{} `json:"args,omitempty"`
 }
 
 type TraceTree struct {
 	span     *tracing.Span
 	children []*TraceTree
+}
+
+func (t *TraceTree) EachSpan(cb func(span *tracing.Span) error) error {
+	if err := cb(t.span); err != nil {
+		return err
+	}
+	for _, ch := range t.children {
+		if err := ch.EachSpan(cb); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func buildTrees(spans []tracing.Span) []*TraceTree {
@@ -93,7 +94,7 @@ func buildTrees(spans []tracing.Span) []*TraceTree {
 		if par, ok := bySpan[span.ParentId]; ok {
 			par.children = append(par.children, me)
 		} else {
-			log.Printf("missing parent: %s", span.ParentId)
+			log.Printf("missing parent: span=%s parent=%s", span.SpanId, span.ParentId)
 		}
 	}
 	return trees
@@ -115,6 +116,11 @@ func (w *walker) walk(tree *TraceTree, maxDepth int) {
 		panic(fmt.Sprintf("out of order span=%v %s < %s", tree.span, tree.span.Start, w.start))
 	}
 
+	if tree.span.Fields == nil {
+		tree.span.Fields = make(map[string]interface{})
+	}
+	tree.span.Fields["span_id"] = tree.span.SpanId
+
 	w.events = append(w.events, Event{
 		Pid:  w.pid,
 		Tid:  w.tid,
@@ -135,6 +141,7 @@ func (w *walker) walk(tree *TraceTree, maxDepth int) {
 		Cat:  "trace",
 		Id:   w.tid,
 		Ts:   (tree.span.Start.Sub(w.start) + tree.span.Duration).Microseconds(),
+		Args: tree.span.Fields,
 		Name: tree.span.Name,
 	})
 }
@@ -154,6 +161,7 @@ func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) 
 	}
 	end := tree.span.Start.Add(tree.span.Duration)
 	if max.Before(end) {
+		log.Printf("fixup end %s", tree.span.SpanId)
 		// log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
 		//  tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
 		delta := end.Sub(max)
@@ -192,20 +200,16 @@ func treeToCSV(w *csv.Writer, tree *TraceTree) {
 	var walk func(t *TraceTree, path string)
 
 	global := make(map[string]interface{})
-	var collect func(t *TraceTree)
-	collect = func(t *TraceTree) {
-		if t.span.Fields != nil {
-			for k, v := range t.span.Fields {
+	tree.EachSpan(func(span *tracing.Span) error {
+		if span.Fields != nil {
+			for k, v := range span.Fields {
 				if strings.HasPrefix(k, "global.") {
 					global[k] = v
 				}
 			}
 		}
-		for _, ch := range t.children {
-			collect(ch)
-		}
-	}
-	collect(tree)
+		return nil
+	})
 
 	walk = func(t *TraceTree, path string) {
 		if path == "" {
@@ -259,48 +263,6 @@ func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error 
 	return nil
 }
 
-func (c *TraceCommand) WriteTraceViewer(spans []tracing.Span, trees []*TraceTree) error {
-	fh, err := os.Create(c.traceViewer)
-	if err != nil {
-		return err
-	}
-	defer fh.Close()
-
-	var minTs time.Time
-	for _, span := range spans {
-		if minTs.IsZero() || span.Start.Before(minTs) {
-			minTs = span.Start
-		}
-	}
-
-	var events []Event
-	for i, tree := range trees {
-		w := walker{
-			start:  minTs,
-			pid:    1,
-			tid:    1 + i,
-			events: events,
-		}
-		w.events = append(w.events, Event{
-			Pid:  w.pid,
-			Tid:  w.tid,
-			Ph:   "X",
-			Ts:   tree.span.Start.Sub(minTs).Microseconds(),
-			Dur:  tree.span.Duration.Microseconds(),
-			Name: tree.span.Name,
-		})
-		w.walk(tree, c.depth)
-		events = w.events
-	}
-
-	out, err := json.MarshalIndent(&events, "", "  ")
-	if err != nil {
-		log.Fatalf("marshal: %v", err)
-	}
-	fmt.Fprintf(fh, "%s\n", out)
-	return nil
-}
-
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.depth == 0 {
 		c.depth = 1 << 24
@@ -350,10 +312,17 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		}
 	}
 
-	if *&c.csv != "" {
+	if c.csv != "" {
 		err := c.WriteCSV(spans, trees)
 		if err != nil {
 			log.Fatalf("write csv: %s", err.Error())
+		}
+	}
+
+	if c.jaeger != "" {
+		err := writeJaeger(trees, c.jaeger)
+		if err != nil {
+			log.Fatalf("write jaeger: %s", err.Error())
 		}
 	}
 
