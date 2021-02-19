@@ -41,6 +41,7 @@ func main() {
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")
 	subcommands.Register(&trace.TraceCommand{}, "tracing")
+	subcommands.Register(&MultigetCommand{}, "internals")
 
 	subcommands.ImportantFlag("region")
 
