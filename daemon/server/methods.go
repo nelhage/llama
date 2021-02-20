@@ -22,8 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/honeycombio/beeline-go"
-
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
@@ -137,7 +135,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	{
 		if repl.Response.Outputs != nil {
-			ctx, fetch := beeline.StartSpan(ctx, "fetch")
+			ctx, fetch := tracing.StartSpan(ctx, "fetch")
 			fetchList, extra := in.Outputs.TransformToLocal(ctx, repl.Response.Outputs)
 			for _, out := range extra {
 				log.Printf("Remote returned unexpected output: %s", out.Path)
@@ -150,7 +148,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 			if invokeErr == nil {
 				invokeErr = fetchErr
 			}
-			fetch.Send()
+			fetch.End()
 		}
 	}
 	*out = daemon.InvokeWithFilesReply{
