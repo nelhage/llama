@@ -117,7 +117,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_invoke := time.Now()
 
-	repl, invokeErr := llama.Invoke(ctx, d.lambda, &args)
+	repl, invokeErr := llama.Invoke(ctx, d.lambda, d.store, &args)
 	if invokeErr != nil {
 		sb.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
 		if _, ok := invokeErr.(*llama.ErrorReturn); ok {

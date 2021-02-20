@@ -19,10 +19,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -46,7 +48,8 @@ func (e *ErrorReturn) Error() string {
 	return fmt.Sprintf("Function returned error: %q", e.Payload)
 }
 
-func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeResult, error) {
+func Invoke(ctx context.Context, svc *lambda.Lambda,
+	st store.Store, args *InvokeArgs) (*InvokeResult, error) {
 	ctx, span := tracing.StartSpan(ctx, "llama.Invoke")
 	defer span.End()
 	span.AddField("function", args.Function)
@@ -80,6 +83,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
 		out.Logs = logs
 	}
+
 	if resp.FunctionError != nil {
 		return nil, &ErrorReturn{
 			Payload: resp.Payload,
@@ -93,7 +97,17 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		return nil, fmt.Errorf("unmarshal: %q", err)
 	}
 
-	tracing.SubmitAll(ctx, out.Response.Spans)
+	if out.Response.Spans != nil {
+		spandata, err := out.Response.Spans.Read(ctx, st)
+		if err != nil {
+			log.Printf("error receiving traces: %s", err.Error())
+		} else {
+			var spans []tracing.Span
+			if json.Unmarshal(spandata, &spans) == nil {
+				tracing.SubmitAll(ctx, spans)
+			}
+		}
+	}
 
 	span.AddField("e2e_ms", out.Response.Times.E2E.Milliseconds())
 	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())

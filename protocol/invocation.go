@@ -29,12 +29,12 @@ type InvocationSpec struct {
 }
 
 type InvocationResponse struct {
-	ExitStatus int            `json:"status"`
-	Stdout     *Blob          `json:"stdout,omitempty"`
-	Stderr     *Blob          `json:"stderr,omitempty"`
-	Outputs    FileList       `json:"outputs,omitempty"`
-	Spans      []tracing.Span `json:"spans,omitempty"`
-	Times      Timing         `json:"times"`
+	ExitStatus int      `json:"status"`
+	Stdout     *Blob    `json:"stdout,omitempty"`
+	Stderr     *Blob    `json:"stderr,omitempty"`
+	Outputs    FileList `json:"outputs,omitempty"`
+	Spans      *Blob    `json:"spans,omitempty"`
+	Times      Timing   `json:"times"`
 }
 
 type Timing struct {

@@ -264,7 +264,7 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	if job.Err != nil {
 		return
 	}
-	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
+	job.Result, job.Err = llama.Invoke(ctx, c.lambda, store, job.Args)
 
 	if job.Err == nil {
 		fetchList, extra := job.TemplateContext.Outputs.TransformToLocal(ctx, job.Result.Response.Outputs)
