@@ -33,6 +33,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/golang/snappy"
 
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
@@ -142,24 +143,26 @@ func runOne(ctx context.Context, store store.Store,
 		)
 		defer func() {
 			span.End()
-			if resp != nil {
-				spans := tracer.Close()
-				spandata, err := json.Marshal(spans)
-				if err == nil {
-					// We have to use topctx so we
-					// don't try to log spans to
-					// the tracer we just
-					// closed. This does mean we
-					// won't see this upload in
-					// tracing, but doing that
-					// would involve an entire
-					// additional layer of
-					// complexity...
-					resp.Spans, err = protocol.NewBlob(topctx, store, spandata)
-				}
-				if err != nil {
-					resp.Spans = &protocol.Blob{Err: err.Error()}
-				}
+			if resp == nil {
+				return
+			}
+			spans := tracer.Close()
+			spandata, err := json.Marshal(spans)
+			if err == nil {
+				compressed := snappy.Encode(nil, spandata)
+				// We have to use topctx so we
+				// don't try to log spans to
+				// the tracer we just
+				// closed. This does mean we
+				// won't see this upload in
+				// tracing, but doing that
+				// would involve an entire
+				// additional layer of
+				// complexity...
+				resp.Spans, err = protocol.NewBlob(topctx, store, compressed)
+			}
+			if err != nil {
+				resp.Spans = &protocol.Blob{Err: err.Error()}
 			}
 		}()
 	}

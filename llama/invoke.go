@@ -23,6 +23,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/golang/snappy"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
@@ -99,6 +100,9 @@ func Invoke(ctx context.Context, svc *lambda.Lambda,
 
 	if out.Response.Spans != nil {
 		spandata, err := out.Response.Spans.Read(ctx, st)
+		if err == nil {
+			spandata, err = snappy.Decode(nil, spandata)
+		}
 		if err != nil {
 			log.Printf("error receiving traces: %s", err.Error())
 		} else {
