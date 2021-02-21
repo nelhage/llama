@@ -17,20 +17,18 @@ package s3store
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net/url"
 	"path"
-	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/nelhage/llama/tracing"
-	"golang.org/x/crypto/blake2b"
 )
 
 type Options struct {
@@ -43,25 +41,7 @@ type Store struct {
 	s3      *s3.S3
 	url     *url.URL
 
-	cache cache
-}
-
-type cache struct {
-	sync.Mutex
-	seen map[string]struct{}
-}
-
-func (c *cache) hasObject(id string) bool {
-	c.Lock()
-	defer c.Unlock()
-	_, ok := c.seen[id]
-	return ok
-}
-
-func (c *cache) addObject(id string) {
-	c.Lock()
-	defer c.Unlock()
-	c.seen[id] = struct{}{}
+	cache storeutil.Cache
 }
 
 func FromSession(s *session.Session, address string) (*Store, error) {
@@ -85,19 +65,15 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 		session: s,
 		s3:      svc,
 		url:     u,
-		cache: cache{
-			seen: make(map[string]struct{}),
-		},
 	}, nil
 }
 
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
-	csum := blake2b.Sum256(obj)
-	id := hex.EncodeToString(csum[:])
+	id := storeutil.HashObject(obj)
 
-	if s.cache.hasObject(id) {
+	if s.cache.HasObject(id) {
 		return id, nil
 	}
 
@@ -112,7 +88,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 			Key:    key,
 		})
 		if err == nil {
-			s.cache.addObject(id)
+			s.cache.AddObject(id)
 			span.AddField("s3.exists", true)
 			return id, nil
 		}
@@ -133,7 +109,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s.cache.addObject(id)
+	s.cache.AddObject(id)
 	return id, nil
 }
 
@@ -154,12 +130,11 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	gotSum := blake2b.Sum256(body)
-	gotId := hex.EncodeToString(gotSum[:])
+	gotId := storeutil.HashObject(body)
 	if gotId != id {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
-	s.cache.addObject(id)
+	s.cache.AddObject(id)
 
 	span.AddField("s3.read_bytes", len(body))
 
