@@ -48,7 +48,7 @@ type FileAndPath struct {
 
 type FileList []FileAndPath
 
-func (b *Blob) Read(ctx context.Context, store store.Store) ([]byte, error) {
+func (b *Blob) Read(ctx context.Context, st store.Store) ([]byte, error) {
 	if b.String != "" {
 		return []byte(b.String), nil
 	}
@@ -56,7 +56,7 @@ func (b *Blob) Read(ctx context.Context, store store.Store) ([]byte, error) {
 		return b.Bytes, nil
 	}
 	if b.Ref != "" {
-		return store.Get(ctx, b.Ref)
+		return store.Get(ctx, st, b.Ref)
 	}
 	return nil, nil
 }

@@ -17,7 +17,6 @@ package store
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 
 	"golang.org/x/crypto/blake2b"
 )
@@ -33,11 +32,15 @@ func (s *inMemory) Store(ctx context.Context, obj []byte) (string, error) {
 	return id, nil
 }
 
-func (s *inMemory) Get(ctx context.Context, id string) ([]byte, error) {
-	if got, ok := s.objects[id]; ok {
-		return append([]byte(nil), got...), nil
+func (s *inMemory) GetObjects(ctx context.Context, gets []GetRequest) {
+	for i := range gets {
+		id := gets[i].Id
+		if got, ok := s.objects[id]; ok {
+			gets[i].Data = append([]byte(nil), got...)
+		} else {
+			gets[i].Err = ErrNotExists
+		}
 	}
-	return nil, errors.New("no such object")
 }
 
 func InMemory() Store {

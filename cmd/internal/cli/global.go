@@ -82,9 +82,6 @@ func (g *GlobalState) Store() (store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if g.Config.S3Concurrency > 0 && err == nil {
-		g.store = store.LimitConcurrency(g.store, g.Config.S3Concurrency)
-	}
 	return g.store, nil
 }
 

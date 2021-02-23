@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/url"
 	"path"
 
@@ -27,8 +28,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/nelhage/llama/tracing"
+	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {
@@ -113,10 +116,11 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	return id, nil
 }
 
-func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
-	ctx, span := tracing.StartSpan(ctx, "s3.get")
+const getConcurrency = 32
+
+func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
+	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
 	defer span.End()
-	span.AddField("object_id", id)
 
 	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: &s.url.Host,
@@ -137,6 +141,32 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	s.cache.AddObject(id)
 
 	span.AddField("s3.read_bytes", len(body))
-
 	return body, nil
+}
+
+func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
+	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
+	defer span.End()
+	grp, ctx := errgroup.WithContext(ctx)
+	jobs := make(chan int)
+
+	grp.Go(func() error {
+		defer close(jobs)
+		for i := range gets {
+			jobs <- i
+		}
+		return nil
+	})
+	for i := 0; i < getConcurrency; i++ {
+		grp.Go(func() error {
+			for idx := range jobs {
+				gets[idx].Data, gets[idx].Err = s.getOne(ctx, gets[idx].Id)
+			}
+			return nil
+		})
+	}
+
+	if err := grp.Wait(); err != nil {
+		log.Fatalf("GetObjects: internal error %s", err)
+	}
 }

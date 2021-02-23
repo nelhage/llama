@@ -14,9 +14,26 @@
 
 package store
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+type GetRequest struct {
+	Id   string
+	Data []byte
+	Err  error
+}
+
+var ErrNotExists = errors.New("Requested object does not exist")
 
 type Store interface {
 	Store(ctx context.Context, obj []byte) (string, error)
-	Get(ctx context.Context, id string) ([]byte, error)
+	GetObjects(ctx context.Context, gets []GetRequest)
+}
+
+func Get(ctx context.Context, st Store, id string) ([]byte, error) {
+	gets := []GetRequest{{Id: id}}
+	st.GetObjects(ctx, gets)
+	return gets[0].Data, gets[0].Err
 }

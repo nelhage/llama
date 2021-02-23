@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/store"
 )
 
 type StoreCommand struct {
@@ -73,7 +74,7 @@ func (c *GetCommand) SetFlags(flags *flag.FlagSet) {
 func (c *GetCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	obj, err := global.MustStore().Get(ctx, flag.Arg(0))
+	obj, err := store.Get(ctx, global.MustStore(), flag.Arg(0))
 	if err != nil {
 		log.Printf("read %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure
