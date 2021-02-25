@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -25,7 +26,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
-	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/store"
 )
 
 type MultigetCommand struct {
@@ -47,27 +48,32 @@ func (c *MultigetCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...
 	if err != nil {
 		log.Fatalf("open: %s", err.Error())
 	}
-	var files protocol.FileList
+	var paths []string
+	var gets []store.GetRequest
 	scan := bufio.NewScanner(fh)
 	for scan.Scan() {
 		line := scan.Text()
 		sp := strings.Index(line, "  ")
 		hash := line[:sp]
 		file := line[sp+2:]
-		files = append(files, protocol.FileAndPath{
-			Path: file,
-			File: protocol.File{
-				Mode: 0644,
-				Blob: protocol.Blob{
-					Ref: hash,
-				},
-			},
-		})
-		os.MkdirAll(path.Dir(file), 0755)
+		gets = append(gets, store.GetRequest{Id: hash})
+		paths = append(paths, file)
 	}
 
-	if err := files.Fetch(ctx, state.MustStore()); err != nil {
-		log.Fatalf("fetch: %s", err.Error())
+	if err := scan.Err(); err != nil {
+		log.Fatalf("scan: %s", err.Error())
+	}
+
+	state.MustStore().GetObjects(ctx, gets)
+
+	for i, file := range paths {
+		os.MkdirAll(path.Dir(file), 0755)
+		if gets[i].Err != nil {
+			log.Fatalf("get %s: %s", gets[i].Id, gets[i].Err.Error())
+		}
+		if err := ioutil.WriteFile(file, gets[i].Data, 0644); err != nil {
+			log.Fatalf("write %s: %s", file, err.Error())
+		}
 	}
 
 	return subcommands.ExitSuccess

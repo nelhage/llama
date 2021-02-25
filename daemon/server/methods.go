@@ -25,6 +25,8 @@ import (
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
+	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -101,7 +103,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 			return err
 		}
 		if in.Stdin != nil {
-			args.Spec.Stdin, err = protocol.NewBlob(ctx, d.store, in.Stdin)
+			args.Spec.Stdin, err = files.NewBlob(ctx, d.store, in.Stdin)
 			if err != nil {
 				sb.AddField("error", fmt.Sprintf("stdin: %s", err.Error()))
 				return err
@@ -133,24 +135,19 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
 
-	{
-		if repl.Response.Outputs != nil {
-			ctx, fetch := tracing.StartSpan(ctx, "fetch")
-			fetchList, extra := in.Outputs.TransformToLocal(ctx, repl.Response.Outputs)
-			for _, out := range extra {
-				log.Printf("Remote returned unexpected output: %s", out.Path)
-			}
+	var gets []store.GetRequest
 
-			fetchErr := fetchList.Fetch(ctx, d.store)
-			if fetchErr != nil {
-				sb.AddField("error", fmt.Sprintf("fetch: %s", fetchErr.Error()))
-			}
-			if invokeErr == nil {
-				invokeErr = fetchErr
-			}
-			fetch.End()
+	var fetchList, extra protocol.FileList
+	if repl.Response.Outputs != nil {
+		fetchList, extra = in.Outputs.TransformToLocal(ctx, repl.Response.Outputs)
+		for _, out := range extra {
+			log.Printf("Remote returned unexpected output: %s", out.Path)
+		}
+		for _, f := range fetchList {
+			gets = files.AppendGet(gets, &f.Blob)
 		}
 	}
+
 	*out = daemon.InvokeWithFilesReply{
 		Logs:       repl.Logs,
 		ExitStatus: repl.Response.ExitStatus,
@@ -160,11 +157,29 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	}
 
 	if repl.Response.Stdout != nil {
-		out.Stdout, _ = repl.Response.Stdout.Read(ctx, d.store)
+		gets = files.AppendGet(gets, repl.Response.Stdout)
 	}
 
 	if repl.Response.Stderr != nil {
-		out.Stderr, _ = repl.Response.Stderr.Read(ctx, d.store)
+		gets = files.AppendGet(gets, repl.Response.Stderr)
+	}
+
+	d.store.GetObjects(ctx, gets)
+
+	for _, f := range fetchList {
+		var err error
+		err, gets = files.FetchFile(&f.File, f.Path, gets)
+		if err != nil && out.InvokeErr == "" {
+			out.InvokeErr = err.Error()
+		}
+	}
+
+	if repl.Response.Stdout != nil {
+		out.Stdout, _, gets = files.ReadBlob(repl.Response.Stdout, gets)
+	}
+
+	if repl.Response.Stderr != nil {
+		out.Stderr, _, gets = files.ReadBlob(repl.Response.Stderr, gets)
 	}
 
 	t_end := time.Now()

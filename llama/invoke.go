@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/golang/snappy"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
 )
@@ -99,7 +100,8 @@ func Invoke(ctx context.Context, svc *lambda.Lambda,
 	}
 
 	if out.Response.Spans != nil {
-		spandata, err := out.Response.Spans.Read(ctx, st)
+		gets := files.AppendGet(nil, out.Response.Spans)
+		spandata, err, _ := files.ReadBlob(out.Response.Spans, gets)
 		if err == nil {
 			spandata, err = snappy.Decode(nil, spandata)
 		}
