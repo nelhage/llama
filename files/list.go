@@ -157,7 +157,7 @@ func (f List) TransformToLocal(ctx context.Context, files protocol.FileList) (ok
 func (f List) MakeAbsolute(base string) List {
 	out := make(List, 0, len(f))
 	for _, e := range f {
-		if e.Local.Path != "" {
+		if e.Local.Path != "" && !path.IsAbs(e.Local.Path) {
 			e.Local.Path = path.Join(base, e.Local.Path)
 		}
 		out = append(out, e)

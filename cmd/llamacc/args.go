@@ -57,9 +57,22 @@ type Compilation struct {
 	PreprocessedLanguage string
 	Input                string
 	Output               string
+	UnknownArgs          []string
 	LocalArgs            []string
 	RemoteArgs           []string
 	Flag                 Flags
+	Defs                 []Def
+	Includes             []Include
+}
+
+type Def struct {
+	Opt string
+	Def string
+}
+
+type Include struct {
+	Opt  string
+	Path string
 }
 
 func (c *Compilation) Compiler() string {
@@ -70,10 +83,12 @@ func (c *Compilation) Compiler() string {
 }
 
 type Flags struct {
-	MD bool
-	C  bool
-	S  bool
-	MF string
+	MD  bool
+	MMD bool
+	MF  string
+
+	C bool
+	S bool
 }
 
 func smellsLikeInput(arg string) bool {
@@ -115,9 +130,20 @@ type argSpec struct {
 	hasArg bool
 }
 
+func includeArg(opt string) argSpec {
+	return argSpec{opt, func(c *Compilation, arg string) (filterWhere, error) {
+		c.Includes = append(c.Includes, Include{opt, arg})
+		return filterRemote, nil
+	}, true}
+}
+
 var argSpecs = []argSpec{
 	{"-MD", func(c *Compilation, _ string) (filterWhere, error) {
 		c.Flag.MD = true
+		return filterRemote, nil
+	}, false},
+	{"-MMD", func(c *Compilation, _ string) (filterWhere, error) {
+		c.Flag.MMD = true
 		return filterRemote, nil
 	}, false},
 	{"-MF", func(c *Compilation, arg string) (filterWhere, error) {
@@ -128,9 +154,11 @@ var argSpecs = []argSpec{
 		return filterRemote, nil
 	}, true},
 	{"-D", func(c *Compilation, arg string) (filterWhere, error) {
+		c.Defs = append(c.Defs, Def{"-D", arg})
 		return filterRemote, nil
 	}, true},
 	{"-U", func(c *Compilation, arg string) (filterWhere, error) {
+		c.Defs = append(c.Defs, Def{"-U", arg})
 		return filterRemote, nil
 	}, true},
 	{"-c", func(c *Compilation, arg string) (filterWhere, error) {
@@ -160,33 +188,15 @@ var argSpecs = []argSpec{
 		c.Output = arg
 		return filterBoth, nil
 	}, true},
-	{"-I", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-isystem", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-iquote", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-idirafter", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-iprefix", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-iwithprefixbefore", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-iwithprefix", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-isysroot", func(c *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
-	{"-include", func(_ *Compilation, _ string) (filterWhere, error) {
-		return filterRemote, nil
-	}, true},
+	includeArg("-I"),
+	includeArg("-isystem"),
+	includeArg("-iquote"),
+	includeArg("-idirafter"),
+	includeArg("-iprefix"),
+	includeArg("-iwithprefixbefore"),
+	includeArg("-iwithprefix"),
+	includeArg("-isysroot"),
+	includeArg("-include"),
 	{"-nostdinc", func(c *Compilation, _ string) (filterWhere, error) {
 		return filterRemote, nil
 	}, false},
@@ -200,9 +210,53 @@ func replaceExt(file string, newExt string) string {
 	return file[:len(file)-len(ext)] + newExt
 }
 
+func rewriteWp(args []string) []string {
+	var out []string
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "-Wp,") {
+			if out == nil {
+				out = make([]string, 0, len(args))
+				out = append(out, args[:i]...)
+			}
+			arg = strings.TrimPrefix(arg, "-Wp,")
+			for arg != "" {
+				next := strings.IndexRune(arg, ',')
+				if next < 0 {
+					out = append(out, arg)
+					break
+				}
+				word := arg[:next]
+				out = append(out, word)
+				arg = arg[next+1:]
+
+				if word == "-MD" || word == "-MMD" && arg != "" {
+					next = strings.IndexRune(arg, ',')
+					var word string
+					if next < 0 {
+						word = arg
+						arg = ""
+					} else {
+						word = arg[:next]
+						arg = arg[next+1:]
+					}
+					out = append(out, "-MF", word)
+				}
+			}
+		} else if out != nil {
+			out = append(out, arg)
+		}
+	}
+	if out != nil {
+		return out
+	}
+	return args
+}
+
 func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 	var out Compilation
 	args := argv[1:]
+
+	args = rewriteWp(args)
 
 	i := 0
 	for i < len(args) {
@@ -245,6 +299,7 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 				break
 			}
 			if !found {
+				out.UnknownArgs = append(out.UnknownArgs, arg)
 				out.LocalArgs = append(out.LocalArgs, arg)
 				out.RemoteArgs = append(out.RemoteArgs, arg)
 			}
@@ -254,6 +309,7 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 			}
 			out.Input = arg
 		} else {
+			out.UnknownArgs = append(out.UnknownArgs, arg)
 			out.LocalArgs = append(out.LocalArgs, arg)
 			out.RemoteArgs = append(out.RemoteArgs, arg)
 		}
@@ -268,8 +324,9 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 	if out.Output == "" {
 		out.Output = replaceExt(out.Input, ".o")
 	}
-	if out.Flag.MD && out.Flag.MF == "" {
-		out.LocalArgs = append(out.LocalArgs, "-MF", replaceExt(out.Output, ".d"))
+	if (out.Flag.MD || out.Flag.MMD) && out.Flag.MF == "" {
+		out.Flag.MF = replaceExt(out.Output, ".d")
+		out.LocalArgs = append(out.LocalArgs, "-MF", out.Flag.MF)
 	}
 	if out.Language == "" {
 		lang, ok := extLangs[path.Ext(out.Input)]

@@ -20,12 +20,13 @@ import (
 )
 
 type Config struct {
-	Verbose        bool
-	Local          bool
-	RemoteAssemble bool
-	FullPreprocess bool
-	Function       string
-	BuildID        string
+	Verbose          bool
+	Local            bool
+	RemoteAssemble   bool
+	FullPreprocess   bool
+	Function         string
+	RemotePreprocess bool
+	BuildID          string
 }
 
 var DefaultConfig = Config{
@@ -55,6 +56,8 @@ func ParseConfig(env []string) Config {
 			out.Function = val
 		case "FULL_PREPROCESS":
 			out.FullPreprocess = val != ""
+		case "REMOTE_PREPROCESS":
+			out.RemotePreprocess = val != ""
 		case "BUILD_ID":
 			out.BuildID = val
 		default:

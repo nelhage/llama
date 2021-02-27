@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -35,8 +36,6 @@ import (
 
 func runLlamaCC(cfg *Config, comp *Compilation) error {
 	var err error
-	ccpath, err := exec.LookPath(comp.Compiler())
-	wd, err := os.Getwd()
 	ctx := context.Background()
 	client, err := server.DialWithAutostart(ctx, cli.SocketPath())
 	if err != nil {
@@ -54,6 +53,130 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		span.End()
 		client.TraceSpans(&daemon.TraceSpansArgs{Spans: mt.Close()})
 	}()
+
+	if cfg.RemotePreprocess {
+		return buildRemotePreprocess(ctx, client, cfg, comp)
+	} else {
+		return buildLocalPreprocess(ctx, client, cfg, comp)
+	}
+}
+
+func toRemote(local, wd string) string {
+	var remote string
+	if local[0] == '/' {
+		remote = local[1:]
+	} else {
+		remote = path.Join(wd, local)[1:]
+	}
+	return path.Join("_root", remote)
+}
+
+func remap(local, wd string) files.Mapped {
+	return files.Mapped{
+		Local: files.LocalFile{
+			Path: path.Join(wd, local),
+		},
+		Remote: toRemote(local, wd),
+	}
+}
+
+func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
+	args, err := buildRemoteInvoke(ctx, cfg, comp)
+	out, err := client.InvokeWithFiles(args)
+	if err != nil {
+		return err
+	}
+	os.Stdout.Write(out.Stdout)
+	os.Stderr.Write(out.Stderr)
+	if out.InvokeErr != "" {
+		return fmt.Errorf("invoke: %s", out.InvokeErr)
+	}
+	if out.ExitStatus != 0 {
+		return fmt.Errorf("invoke: exit %d", out.ExitStatus)
+	}
+
+	if comp.Flag.MF != "" {
+		return rewriteMF(ctx, comp)
+	}
+
+	return nil
+}
+
+func rewriteMF(ctx context.Context, comp *Compilation) error {
+	tmpMF := comp.Flag.MF + ".tmp"
+	data, err := ioutil.ReadFile(tmpMF)
+	if err != nil {
+		return err
+	}
+	data = bytes.ReplaceAll(data, []byte("_root/"), []byte("/"))
+	if err := ioutil.WriteFile(comp.Flag.MF, data, 0644); err != nil {
+		return err
+	}
+	return os.Remove(tmpMF)
+}
+
+func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	deps, err := detectDependencies(ctx, cfg, comp)
+	if err != nil {
+		return nil, fmt.Errorf("Detecting dependencies: %w", err)
+	}
+
+	args := daemon.InvokeWithFilesArgs{
+		Function: cfg.Function,
+	}
+
+	args.Outputs = args.Outputs.Append(remap(comp.Output, wd))
+
+	if comp.Flag.MF != "" {
+		args.Outputs = args.Outputs.Append(remap(comp.Flag.MF+".tmp", wd))
+	}
+	args.Files = args.Files.Append(remap(comp.Input, wd))
+	for _, dep := range deps {
+		args.Files = args.Files.Append(remap(dep, wd))
+	}
+
+	args.Args = []string{comp.Compiler()}
+
+	args.Args = append(args.Args, "-I", toRemote(".", wd))
+	for _, inc := range comp.Includes {
+		args.Args = append(args.Args, inc.Opt, toRemote(inc.Path, wd))
+	}
+	for _, def := range comp.Defs {
+		args.Args = append(args.Args, def.Opt, def.Def)
+	}
+	args.Args = append(args.Args, "-c")
+	args.Args = append(args.Args, "-o", toRemote(comp.Output, wd))
+	args.Args = append(args.Args, toRemote(comp.Input, wd))
+	if comp.Flag.MD {
+		args.Args = append(args.Args, "-MD")
+	}
+	if comp.Flag.MMD {
+		args.Args = append(args.Args, "-MMD")
+	}
+	if comp.Flag.MF != "" {
+		args.Args = append(args.Args, "-MF", toRemote(comp.Flag.MF+".tmp", wd))
+	}
+	args.Args = append(args.Args, comp.UnknownArgs...)
+	if cfg.Verbose {
+		log.Printf("[llamacc] compiling remotely: %#v", args)
+	}
+	return &args, nil
+}
+
+func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	ccpath, err := exec.LookPath(comp.Compiler())
+	if err != nil {
+		return fmt.Errorf("find %s: %w", comp.Compiler(), err)
+	}
 
 	var preprocessed bytes.Buffer
 	{
@@ -77,6 +200,7 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		span.End()
 	}
 
+	prop := tracing.PropagationFromContext(ctx)
 	args := daemon.InvokeWithFilesArgs{
 		Function: cfg.Function,
 		Outputs: []files.Mapped{
@@ -86,7 +210,7 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 			},
 		},
 		Stdin: preprocessed.Bytes(),
-		Trace: span.Propagation(),
+		Trace: &prop,
 	}
 	args.Args = []string{comp.Compiler()}
 	args.Args = append(args.Args, comp.RemoteArgs...)
