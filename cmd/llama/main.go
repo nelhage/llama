@@ -23,6 +23,7 @@ import (
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
+	"github.com/nelhage/llama/cmd/llama/internal/trace"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -39,7 +40,8 @@ func main() {
 
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")
-	subcommands.Register(&TraceCommand{}, "tracing")
+	subcommands.Register(&trace.TraceCommand{}, "tracing")
+	subcommands.Register(&MultigetCommand{}, "internals")
 
 	subcommands.ImportantFlag("region")
 

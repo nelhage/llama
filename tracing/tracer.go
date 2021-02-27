@@ -25,31 +25,15 @@ type SpanBuilder struct {
 	span   Span
 }
 
-func (sp *SpanBuilder) ensureMetrics() {
-	if sp.span.Metrics == nil {
-		sp.span.Metrics = make(map[string]float64)
+func (sp *SpanBuilder) ensureFields() {
+	if sp.span.Fields == nil {
+		sp.span.Fields = make(map[string]interface{})
 	}
 }
 
-func (sp *SpanBuilder) ensureLabels() {
-	if sp.span.Labels == nil {
-		sp.span.Labels = make(map[string]string)
-	}
-}
-
-func (sp *SpanBuilder) SetMetric(name string, v float64) {
-	sp.ensureMetrics()
-	sp.span.Metrics[name] = v
-}
-
-func (sp *SpanBuilder) IncMetric(name string, delta float64) {
-	sp.ensureMetrics()
-	sp.span.Metrics[name] += delta
-}
-
-func (sp *SpanBuilder) SetLabel(name string, value string) {
-	sp.ensureLabels()
-	sp.span.Labels[name] = value
+func (sp *SpanBuilder) AddField(name string, v interface{}) {
+	sp.ensureFields()
+	sp.span.Fields[name] = v
 }
 
 func (sp *SpanBuilder) End() *Span {

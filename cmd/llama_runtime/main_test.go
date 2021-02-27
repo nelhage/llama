@@ -26,6 +26,7 @@ import (
 	"context"
 
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,8 +80,8 @@ func TestParseJob(t *testing.T) {
 
 	ctx := context.Background()
 	st := store.InMemory()
-	a_txt, _ := protocol.NewBlob(ctx, st, []byte(contentsA))
-	b_txt, _ := protocol.NewBlob(ctx, st, []byte(contentsB))
+	a_txt, _ := files.NewBlob(ctx, st, []byte(contentsA))
+	b_txt, _ := files.NewBlob(ctx, st, []byte(contentsB))
 
 	cmdline := []string{"/bin/echo", "Hello"}
 	spec := protocol.InvocationSpec{
@@ -123,7 +124,7 @@ func TestRunOne(t *testing.T) {
 
 	ctx := context.Background()
 	st := store.InMemory()
-	a_txt, _ := protocol.NewBlob(ctx, st, []byte(contentsA))
+	a_txt, _ := files.NewBlob(ctx, st, []byte(contentsA))
 
 	cmdline := []string{"/bin/sh", "-c"}
 	spec := protocol.InvocationSpec{
@@ -141,7 +142,7 @@ func TestRunOne(t *testing.T) {
 
 	b_blob := resp.Outputs[0]
 	assert.Equal(t, "b.txt", b_blob.Path)
-	b_txt, err := b_blob.Read(ctx, st)
+	b_txt, err := files.Read(ctx, st, &b_blob.Blob)
 	if err != nil {
 		t.Errorf("Read b.txt: %s", err.Error())
 	} else if string(b_txt) != contentsA+"World\n" {
@@ -168,7 +169,7 @@ func TestRunOne_NoCmdLine(t *testing.T) {
 		t.Fatal("runOne", err)
 	}
 
-	stdout, err := resp.Stdout.Read(ctx, st)
+	stdout, err := files.Read(ctx, st, resp.Stdout)
 	require.NoError(t, err)
 	assert.Equal(t, stdout, []byte("hello\n"))
 }

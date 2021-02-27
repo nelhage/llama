@@ -12,28 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package store
+package storeutil
 
-import (
-	"context"
-	"errors"
-)
+import "sync"
 
-type GetRequest struct {
-	Id   string
-	Data []byte
-	Err  error
+type Cache struct {
+	sync.Mutex
+	seen map[string]struct{}
 }
 
-var ErrNotExists = errors.New("Requested object does not exist")
-
-type Store interface {
-	Store(ctx context.Context, obj []byte) (string, error)
-	GetObjects(ctx context.Context, gets []GetRequest)
+func (c *Cache) HasObject(id string) bool {
+	c.Lock()
+	defer c.Unlock()
+	if c.seen == nil {
+		return false
+	}
+	_, ok := c.seen[id]
+	return ok
 }
 
-func Get(ctx context.Context, st Store, id string) ([]byte, error) {
-	gets := []GetRequest{{Id: id}}
-	st.GetObjects(ctx, gets)
-	return gets[0].Data, gets[0].Err
+func (c *Cache) AddObject(id string) {
+	c.Lock()
+	defer c.Unlock()
+	if c.seen == nil {
+		c.seen = make(map[string]struct{})
+	}
+	c.seen[id] = struct{}{}
 }

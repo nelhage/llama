@@ -17,27 +17,41 @@ package s3store
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/url"
 	"path"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/nelhage/llama/tracing"
-	"golang.org/x/crypto/blake2b"
+	"golang.org/x/sync/errgroup"
 )
 
+type Options struct {
+	DisableHeadCheck bool
+}
+
 type Store struct {
+	opts    Options
 	session *session.Session
 	s3      *s3.S3
 	url     *url.URL
+
+	cache storeutil.Cache
 }
 
 func FromSession(s *session.Session, address string) (*Store, error) {
+	return FromSessionAndOptions(s, address, Options{})
+}
+
+func FromSessionAndOptions(s *session.Session, address string, opts Options) (*Store, error) {
 	u, e := url.Parse(address)
 	if e != nil {
 		return nil, fmt.Errorf("Parsing store: %q: %w", address, e)
@@ -45,9 +59,14 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 	if u.Scheme != "s3" {
 		return nil, fmt.Errorf("Object store: %q: unsupported scheme %s", address, u.Scheme)
 	}
+	svc := s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true))
+	svc.Handlers.Sign.PushFront(func(r *request.Request) {
+		r.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
+	})
 	return &Store{
+		opts:    opts,
 		session: s,
-		s3:      s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true)),
+		s3:      svc,
 		url:     u,
 	}, nil
 }
@@ -55,28 +74,35 @@ func FromSession(s *session.Session, address string) (*Store, error) {
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
-	csum := blake2b.Sum256(obj)
-	id := hex.EncodeToString(csum[:])
+	id := storeutil.HashObject(obj)
+
+	if s.cache.HasObject(id) {
+		return id, nil
+	}
+
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
-	span.SetLabel("object_id", id)
+	span.AddField("object_id", id)
 
-	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-		Bucket: &s.url.Host,
-		Key:    key,
-	})
-	if err == nil {
-		span.SetLabel("s3.exists", "true")
-		return id, nil
-	}
-	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
-		// 404 not found -- do the upload
-	} else {
-		return "", err
+	if !s.opts.DisableHeadCheck {
+		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+			Bucket: &s.url.Host,
+			Key:    key,
+		})
+		if err == nil {
+			s.cache.AddObject(id)
+			span.AddField("s3.exists", true)
+			return id, nil
+		}
+		if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
+			// 404 not found -- do the upload
+		} else {
+			return "", err
+		}
 	}
 
-	span.SetMetric("write_bytes", float64(len(obj)))
+	span.AddField("s3.write_bytes", len(obj))
 
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(obj),
@@ -86,13 +112,15 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.cache.AddObject(id)
 	return id, nil
 }
 
-func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
-	ctx, span := tracing.StartSpan(ctx, "s3.get")
+const getConcurrency = 32
+
+func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
+	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
 	defer span.End()
-	span.SetLabel("object_id", id)
 
 	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: &s.url.Host,
@@ -106,13 +134,39 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	gotSum := blake2b.Sum256(body)
-	gotId := hex.EncodeToString(gotSum[:])
+	gotId := storeutil.HashObject(body)
 	if gotId != id {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
+	s.cache.AddObject(id)
 
-	span.SetMetric("s3.write_bytes", float64(len(body)))
-
+	span.AddField("s3.read_bytes", len(body))
 	return body, nil
+}
+
+func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
+	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
+	defer span.End()
+	grp, ctx := errgroup.WithContext(ctx)
+	jobs := make(chan int)
+
+	grp.Go(func() error {
+		defer close(jobs)
+		for i := range gets {
+			jobs <- i
+		}
+		return nil
+	})
+	for i := 0; i < getConcurrency; i++ {
+		grp.Go(func() error {
+			for idx := range jobs {
+				gets[idx].Data, gets[idx].Err = s.getOne(ctx, gets[idx].Id)
+			}
+			return nil
+		})
+	}
+
+	if err := grp.Wait(); err != nil {
+		log.Fatalf("GetObjects: internal error %s", err)
+	}
 }

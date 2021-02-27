@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 )
 
@@ -95,7 +96,7 @@ func uploadWorker(ctx context.Context, store store.Store, jobs <-chan Mapped, ou
 		}()
 		var blob *protocol.Blob
 		if err == nil {
-			blob, err = protocol.NewBlob(ctx, store, data)
+			blob, err = files.NewBlob(ctx, store, data)
 		}
 		if err != nil {
 			blob = &protocol.Blob{Err: err.Error()}

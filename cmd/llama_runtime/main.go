@@ -33,8 +33,10 @@ import (
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/golang/snappy"
 
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
 	"github.com/nelhage/llama/tracing"
@@ -132,6 +134,7 @@ func runOne(ctx context.Context, store store.Store,
 
 	if job.Trace != nil {
 		var span *tracing.SpanBuilder
+		topctx := ctx
 		tracer = tracing.NewMemoryTracer(ctx)
 		ctx = tracing.WithTracer(ctx, tracer)
 		ctx, span = tracing.StartSpanInTrace(
@@ -141,8 +144,26 @@ func runOne(ctx context.Context, store store.Store,
 		)
 		defer func() {
 			span.End()
-			if resp != nil {
-				resp.Spans = tracer.Close()
+			if resp == nil {
+				return
+			}
+			spans := tracer.Close()
+			spandata, err := json.Marshal(spans)
+			if err == nil {
+				compressed := snappy.Encode(nil, spandata)
+				// We have to use topctx so we
+				// don't try to log spans to
+				// the tracer we just
+				// closed. This does mean we
+				// won't see this upload in
+				// tracing, but doing that
+				// would involve an entire
+				// additional layer of
+				// complexity...
+				resp.Spans, err = files.NewBlob(topctx, store, compressed)
+			}
+			if err != nil {
+				resp.Spans = &protocol.Blob{Err: err.Error()}
 			}
 		}()
 	}
@@ -216,16 +237,16 @@ func executeJob(ctx context.Context, store store.Store,
 
 	{
 		ctx, span := tracing.StartSpan(ctx, "upload")
-		resp.Stdout, err = protocol.NewBlob(ctx, store, stdout.Bytes())
+		resp.Stdout, err = files.NewBlob(ctx, store, stdout.Bytes())
 		if err != nil {
 			resp.Stdout = &protocol.Blob{Err: err.Error()}
 		}
-		resp.Stderr, err = protocol.NewBlob(ctx, store, stderr.Bytes())
+		resp.Stderr, err = files.NewBlob(ctx, store, stderr.Bytes())
 		if err != nil {
 			resp.Stderr = &protocol.Blob{Err: err.Error()}
 		}
 		for _, out := range job.Outputs {
-			file, err := protocol.ReadFile(ctx, store, path.Join(parsed.Root, out))
+			file, err := files.ReadFile(ctx, store, path.Join(parsed.Root, out))
 			if err != nil {
 				file = &protocol.File{
 					Blob: protocol.Blob{
@@ -249,7 +270,7 @@ func executeJob(ctx context.Context, store store.Store,
 }
 
 func parseJob(ctx context.Context,
-	store store.Store,
+	st store.Store,
 	cmdline []string,
 	spec *protocol.InvocationSpec) (*ParsedJob, error) {
 
@@ -263,22 +284,37 @@ func parseJob(ctx context.Context,
 		Args: cmdline,
 	}
 
-	if spec.Stdin != nil {
-		job.Stdin, err = spec.Stdin.Read(ctx, store)
-		if err != nil {
-			return nil, err
-		}
-	}
 	job.Args = append(job.Args, spec.Args...)
 
+	var gets []store.GetRequest
+
+	if spec.Stdin != nil {
+		gets = files.AppendGet(gets, spec.Stdin)
+	}
 	for i, file := range spec.Files {
 		spec.Files[i].Path = path.Join(job.Root, file.Path)
 		if err := os.MkdirAll(path.Dir(spec.Files[i].Path), 0755); err != nil {
 			return nil, err
 		}
+		gets = files.AppendGet(gets, &file.Blob)
 	}
-	if err := spec.Files.Fetch(ctx, store); err != nil {
-		return nil, err
+	st.GetObjects(ctx, gets)
+
+	if spec.Stdin != nil {
+		var data []byte
+		var err error
+		data, err, gets = files.ReadBlob(spec.Stdin, gets)
+		if err != nil {
+			return nil, fmt.Errorf("read stdin: %w", err)
+		}
+		job.Stdin = data
+	}
+
+	for _, f := range spec.Files {
+		err, gets = files.FetchFile(&f.File, f.Path, gets)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, f := range spec.Outputs {
@@ -286,6 +322,5 @@ func parseJob(ctx context.Context,
 			return nil, fmt.Errorf("creating output directory for %q: %s", f, err)
 		}
 	}
-
 	return &job, nil
 }

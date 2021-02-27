@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
+	"github.com/nelhage/llama/store"
 )
 
 type StoreCommand struct {
@@ -41,18 +42,20 @@ func (c *StoreCommand) SetFlags(flags *flag.FlagSet) {
 func (c *StoreCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	bytes, err := ioutil.ReadFile(flag.Arg(0))
-	if err != nil {
-		log.Printf("read %q: %v\n", flag.Arg(0), err)
-		return subcommands.ExitFailure
-	}
+	for _, arg := range flag.Args() {
+		bytes, err := ioutil.ReadFile(arg)
+		if err != nil {
+			log.Printf("read %q: %v\n", arg, err)
+			return subcommands.ExitFailure
+		}
 
-	id, err := global.MustStore().Store(ctx, bytes)
-	if err != nil {
-		log.Printf("storing %q: %v\n", flag.Arg(0), err)
-		return subcommands.ExitFailure
+		id, err := global.MustStore().Store(ctx, bytes)
+		if err != nil {
+			log.Printf("storing %q: %v\n", arg, err)
+			return subcommands.ExitFailure
+		}
+		log.Printf("object %q stored id=%s", arg, id)
 	}
-	log.Printf("object stored id=%s", id)
 
 	return subcommands.ExitSuccess
 }
@@ -73,7 +76,7 @@ func (c *GetCommand) SetFlags(flags *flag.FlagSet) {
 func (c *GetCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	global := cli.MustState(ctx)
 
-	obj, err := global.MustStore().Get(ctx, flag.Arg(0))
+	obj, err := store.Get(ctx, global.MustStore(), flag.Arg(0))
 	if err != nil {
 		log.Printf("read %q: %v\n", flag.Arg(0), err)
 		return subcommands.ExitFailure

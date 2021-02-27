@@ -47,7 +47,7 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 	ctx = tracing.WithTracer(ctx, mt)
 	ctx, span := tracing.StartSpan(ctx, "llamacc")
 	if cfg.BuildID != "" {
-		span.SetLabel("build_id", cfg.BuildID)
+		span.AddField("global.build_id", cfg.BuildID)
 	}
 	defer func() {
 		span.End()
@@ -82,6 +82,7 @@ func remap(local, wd string) files.Mapped {
 
 func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
 	args, err := buildRemoteInvoke(ctx, cfg, comp)
+	args.Trace = tracing.PropagationFromContext(ctx)
 	out, err := client.InvokeWithFiles(args)
 	if err != nil {
 		return err
@@ -200,7 +201,6 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 		span.End()
 	}
 
-	prop := tracing.PropagationFromContext(ctx)
 	args := daemon.InvokeWithFilesArgs{
 		Function: cfg.Function,
 		Outputs: []files.Mapped{
@@ -210,7 +210,7 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 			},
 		},
 		Stdin: preprocessed.Bytes(),
-		Trace: &prop,
+		Trace: tracing.PropagationFromContext(ctx),
 	}
 	args.Args = []string{comp.Compiler()}
 	args.Args = append(args.Args, comp.RemoteArgs...)

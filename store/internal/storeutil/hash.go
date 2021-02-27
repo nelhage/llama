@@ -12,39 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package store
+package storeutil
 
 import (
-	"context"
 	"encoding/hex"
 
 	"golang.org/x/crypto/blake2b"
 )
 
-type inMemory struct {
-	objects map[string][]byte
-}
-
-func (s *inMemory) Store(ctx context.Context, obj []byte) (string, error) {
-	sha := blake2b.Sum256(obj)
-	id := hex.EncodeToString(sha[:])
-	s.objects[id] = append([]byte(nil), obj...)
-	return id, nil
-}
-
-func (s *inMemory) GetObjects(ctx context.Context, gets []GetRequest) {
-	for i := range gets {
-		id := gets[i].Id
-		if got, ok := s.objects[id]; ok {
-			gets[i].Data = append([]byte(nil), got...)
-		} else {
-			gets[i].Err = ErrNotExists
-		}
-	}
-}
-
-func InMemory() Store {
-	return &inMemory{
-		objects: make(map[string][]byte),
-	}
+func HashObject(obj []byte) string {
+	csum := blake2b.Sum256(obj)
+	id := hex.EncodeToString(csum[:])
+	return id
 }

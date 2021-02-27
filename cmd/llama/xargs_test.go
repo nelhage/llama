@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 	"github.com/stretchr/testify/assert"
 )
@@ -42,10 +43,10 @@ type expectation struct {
 	Outputs []string
 }
 
-func readFiles(t *testing.T, ctx context.Context, st store.Store, files protocol.FileList) map[string][]byte {
+func readFiles(t *testing.T, ctx context.Context, st store.Store, fl protocol.FileList) map[string][]byte {
 	gotFiles := make(map[string][]byte)
-	for _, f := range files {
-		data, err := f.Read(ctx, st)
+	for _, f := range fl {
+		data, err := files.Read(ctx, st, &f.Blob)
 		must(t, err)
 		gotFiles[f.Path] = data
 	}
@@ -143,7 +144,7 @@ func TestPrepareInvocation_Files(t *testing.T) {
 		fileContents = "file 1\n"
 	)
 
-	blob, err := protocol.NewBlob(ctx, st, []byte(fileContents))
+	blob, err := files.NewBlob(ctx, st, []byte(fileContents))
 	must(t, err)
 	files := protocol.FileList{
 		{Path: "file.txt", File: protocol.File{Blob: *blob, Mode: 0644}},

@@ -19,10 +19,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/golang/snappy"
 	"github.com/nelhage/llama/protocol"
+	"github.com/nelhage/llama/protocol/files"
+	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -46,10 +50,11 @@ func (e *ErrorReturn) Error() string {
 	return fmt.Sprintf("Function returned error: %q", e.Payload)
 }
 
-func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeResult, error) {
+func Invoke(ctx context.Context, svc *lambda.Lambda,
+	st store.Store, args *InvokeArgs) (*InvokeResult, error) {
 	ctx, span := tracing.StartSpan(ctx, "llama.Invoke")
 	defer span.End()
-	span.SetLabel("function", args.Function)
+	span.AddField("function", args.Function)
 
 	if span.WillSubmit() {
 		args.Spec.Trace = span.Propagation()
@@ -60,7 +65,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	span.SetMetric("payload_bytes", float64(len(payload)))
+	span.AddField("payload_bytes", len(payload))
 
 	input := lambda.InvokeInput{
 		FunctionName: &args.Function,
@@ -80,6 +85,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		logs, _ := base64.StdEncoding.DecodeString(*resp.LogResult)
 		out.Logs = logs
 	}
+
 	if resp.FunctionError != nil {
 		return nil, &ErrorReturn{
 			Payload: resp.Payload,
@@ -87,20 +93,34 @@ func Invoke(ctx context.Context, svc *lambda.Lambda, args *InvokeArgs) (*InvokeR
 		}
 	}
 
-	span.SetMetric("response_bytes", float64(len(resp.Payload)))
+	span.AddField("response_bytes", len(resp.Payload))
 
 	if err := json.Unmarshal(resp.Payload, &out.Response); err != nil {
 		return nil, fmt.Errorf("unmarshal: %q", err)
 	}
 
-	tracing.SubmitAll(ctx, out.Response.Spans)
+	if out.Response.Spans != nil {
+		gets := files.AppendGet(nil, out.Response.Spans)
+		spandata, err, _ := files.ReadBlob(out.Response.Spans, gets)
+		if err == nil {
+			spandata, err = snappy.Decode(nil, spandata)
+		}
+		if err != nil {
+			log.Printf("error receiving traces: %s", err.Error())
+		} else {
+			var spans []tracing.Span
+			if json.Unmarshal(spandata, &spans) == nil {
+				tracing.SubmitAll(ctx, spans)
+			}
+		}
+	}
 
-	span.SetMetric("e2e_ms", float64(out.Response.Times.E2E.Milliseconds()))
-	span.SetMetric("fetch_ms", float64(out.Response.Times.Fetch.Milliseconds()))
-	span.SetMetric("exec_ms", float64(out.Response.Times.Exec.Milliseconds()))
-	span.SetMetric("upload_ms", float64(out.Response.Times.Upload.Milliseconds()))
+	span.AddField("e2e_ms", out.Response.Times.E2E.Milliseconds())
+	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())
+	span.AddField("exec_ms", out.Response.Times.Exec.Milliseconds())
+	span.AddField("upload_ms", out.Response.Times.Upload.Milliseconds())
 	if out.Response.Times.ColdStart {
-		span.SetLabel("cold_start", "true")
+		span.AddField("cold_start", true)
 	}
 
 	return &out, nil

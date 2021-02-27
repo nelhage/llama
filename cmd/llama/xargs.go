@@ -33,6 +33,7 @@ import (
 	"github.com/nelhage/llama/files"
 	"github.com/nelhage/llama/llama"
 	"github.com/nelhage/llama/protocol"
+	protocol_files "github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 )
 
@@ -128,13 +129,13 @@ func (c *XargsCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			log.Printf("==== logs ====\n%s\n==== end logs ====\n", done.Result.Logs)
 		}
 		if done.Result.Response.Stdout != nil {
-			stdout, err := done.Result.Response.Stdout.Read(ctx, global.MustStore())
+			stdout, err := protocol_files.Read(ctx, global.MustStore(), done.Result.Response.Stdout)
 			if err == nil {
 				log.Printf("==== stdout ====\n%s\n==== end stdout ====\n", stdout)
 			}
 		}
 		if done.Result.Response.Stderr != nil {
-			stderr, err := done.Result.Response.Stderr.Read(ctx, global.MustStore())
+			stderr, err := protocol_files.Read(ctx, global.MustStore(), done.Result.Response.Stderr)
 			if err == nil {
 				log.Printf("==== stderr ====\n%s\n==== end stderr ====\n", stderr)
 			}
@@ -249,8 +250,8 @@ func prepareInvocation(ctx context.Context,
 }
 
 func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *Invocation) {
-	store := global.MustStore()
-	spec, err := prepareInvocation(ctx, store, c.fileMap, job)
+	st := global.MustStore()
+	spec, err := prepareInvocation(ctx, st, c.fileMap, job)
 	if err != nil {
 		job.Err = err
 		return
@@ -264,13 +265,24 @@ func (c *XargsCommand) run(ctx context.Context, global *cli.GlobalState, job *In
 	if job.Err != nil {
 		return
 	}
-	job.Result, job.Err = llama.Invoke(ctx, c.lambda, job.Args)
+	job.Result, job.Err = llama.Invoke(ctx, c.lambda, st, job.Args)
 
 	if job.Err == nil {
 		fetchList, extra := job.TemplateContext.Outputs.TransformToLocal(ctx, job.Result.Response.Outputs)
 		for _, out := range extra {
 			log.Printf("Remote returned unexpected output: %s", out.Path)
 		}
-		job.Err = fetchList.Fetch(ctx, store)
+		var gets []store.GetRequest
+		for _, file := range fetchList {
+			gets = protocol_files.AppendGet(gets, &file.Blob)
+		}
+		st.GetObjects(ctx, gets)
+		for _, file := range fetchList {
+			err, gets = protocol_files.FetchFile(&file.File, file.Path, gets)
+			if err != nil {
+				job.Err = err
+				break
+			}
+		}
 	}
 }
