@@ -2,10 +2,14 @@ package diskcache
 
 import (
 	"context"
+	"io/fs"
+	"log"
+	"path/filepath"
 	"testing"
 
 	"github.com/nelhage/llama/store"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type loggingStore struct {
@@ -78,5 +82,58 @@ func TestCache(t *testing.T) {
 		{Id: idB, Data: []byte(fileB)},
 	})
 	assert.Equal(t, mem.gets, []string{idC})
+}
 
+func TestEviction(t *testing.T) {
+	ctx := context.Background()
+
+	mem := store.InMemory()
+	cache := New(mem, t.TempDir(), 1024)
+
+	smallObjs := [][]byte{
+		[]byte("a"),
+		[]byte("b"),
+		[]byte("c"),
+	}
+	var smallIds []string
+	var gets []store.GetRequest
+	for _, o := range smallObjs {
+		id, err := mem.Store(ctx, o)
+		require.NoError(t, err)
+		smallIds = append(smallIds, id)
+		gets = append(gets, store.GetRequest{Id: id})
+	}
+
+	cache.GetObjects(ctx, gets)
+	assert.Equal(t, 3, len(cache.objects.have))
+
+	bigObject := make([]byte, 1024-5-len(smallIds[0]))
+	for i := range bigObject {
+		bigObject[i] = 'x'
+	}
+	bigId, err := mem.Store(ctx, bigObject)
+	require.NoError(t, err)
+
+	gets = []store.GetRequest{{Id: bigId}}
+	cache.GetObjects(ctx, gets)
+	assert.Equal(t, 1, len(cache.objects.have))
+	assert.NotNil(t, cache.objects.have[bigId])
+	log.Printf("bytes=%d", cache.objects.bytes)
+	assert.LessOrEqual(t, cache.objects.bytes, uint64(1024))
+
+	tooBig := append(bigObject, bigObject...)
+	tooBigId, err := mem.Store(ctx, tooBig)
+	require.NoError(t, err)
+	gets = []store.GetRequest{{Id: tooBigId}}
+	cache.GetObjects(ctx, gets)
+	assert.Equal(t, 0, len(cache.objects.have))
+	filepath.Walk(cache.root, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			t.Fatalf("unexpected file in cache directory %q", path)
+		}
+		return nil
+	})
 }

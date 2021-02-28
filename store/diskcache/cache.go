@@ -13,6 +13,8 @@ import (
 	"github.com/nelhage/llama/store"
 )
 
+const debugCache = false
+
 type Store struct {
 	maxBytes uint64
 	root     string
@@ -27,6 +29,27 @@ type objectTracker struct {
 	have  map[string]*entry
 
 	head entry
+}
+
+func (o *objectTracker) checkConsistency() {
+	if !debugCache {
+		return
+	}
+	var sum uint64
+	node := &o.head
+	for {
+		sum += node.bytes
+		if node.next.prev != node {
+			panic(fmt.Sprintf("%s.next.prev != self", node.id))
+		}
+		node = node.next
+		if node == &o.head {
+			break
+		}
+	}
+	if sum != o.bytes {
+		panic(fmt.Sprintf("size mismatch: sum=%d bytes=%d", sum, o.bytes))
+	}
 }
 
 type entry struct {
@@ -98,19 +121,23 @@ func (st *Store) addToCache(id string, data []byte) {
 	head := &st.objects.head
 	ent.next = head.next
 	ent.prev = head
-	head.next.prev = head
+	head.next.prev = ent
 	head.next = ent
-
-	// Accounting and LRU cleanup
 	st.objects.bytes += ent.bytes
+
+	st.objects.checkConsistency()
+
+	// Shrink down to fit
 	for st.objects.bytes > st.maxBytes {
-		// prune the head object
+		// prune the tail object
 		ent := st.objects.head.prev
+		log.Printf("prune bytes=%d lim=%d next=%q", st.objects.bytes, st.maxBytes, ent.id)
 		os.Remove(st.pathFor(ent.id))
 		st.objects.head.prev = ent.prev
 		ent.prev.next = &st.objects.head
 		delete(st.objects.have, ent.id)
 		st.objects.bytes -= ent.bytes
+		st.objects.checkConsistency()
 	}
 }
 
