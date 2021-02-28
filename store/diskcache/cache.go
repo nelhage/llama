@@ -104,11 +104,11 @@ func (st *Store) addToCache(id string, data []byte) {
 		ent.next.prev = ent.prev
 		st.objects.bytes -= ent.bytes
 	} else {
+		compressed := snappy.Encode(nil, data)
 		ent = &entry{
 			id:    id,
-			bytes: uint64(len(id) + len(data)),
+			bytes: uint64(len(id) + len(compressed)),
 		}
-		compressed := snappy.Encode(nil, data)
 		file := st.pathFor(id)
 		os.Mkdir(path.Dir(file), 0755)
 		if err := ioutil.WriteFile(file, compressed, 0644); err != nil {

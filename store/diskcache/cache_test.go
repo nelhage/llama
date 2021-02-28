@@ -2,6 +2,7 @@ package diskcache
 
 import (
 	"context"
+	"crypto/rand"
 	"io/fs"
 	"log"
 	"path/filepath"
@@ -108,9 +109,8 @@ func TestEviction(t *testing.T) {
 	assert.Equal(t, 3, len(cache.objects.have))
 
 	bigObject := make([]byte, 1024-5-len(smallIds[0]))
-	for i := range bigObject {
-		bigObject[i] = 'x'
-	}
+	rand.Reader.Read(bigObject)
+
 	bigId, err := mem.Store(ctx, bigObject)
 	require.NoError(t, err)
 
