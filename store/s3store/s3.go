@@ -122,7 +122,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 const getConcurrency = 32
 
 func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
-	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
+	ctx, span := tracing.StartSpan(ctx, "s3.get_one")
 	defer span.End()
 
 	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
