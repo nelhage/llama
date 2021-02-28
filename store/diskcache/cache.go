@@ -11,6 +11,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/tracing"
 )
 
 const debugCache = false
@@ -158,7 +159,13 @@ func (st *Store) fillFromCache(gets []store.GetRequest) []store.GetRequest {
 }
 
 func (st *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
+	ctx, span := tracing.StartSpan(ctx, "cached_get")
+	defer span.End()
+
+	span.AddField("objects", len(gets))
 	todo := st.fillFromCache(gets)
+	span.AddField("hits", len(gets)-len(todo))
+
 	st.inner.GetObjects(ctx, todo)
 	gi := 0
 	for _, got := range todo {
