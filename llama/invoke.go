@@ -101,6 +101,7 @@ func Invoke(ctx context.Context, svc *lambda.Lambda,
 
 	if out.Response.Spans != nil {
 		gets := files.AppendGet(nil, out.Response.Spans)
+		st.GetObjects(ctx, gets)
 		spandata, err, _ := files.ReadBlob(out.Response.Spans, gets)
 		if err == nil {
 			spandata, err = snappy.Decode(nil, spandata)
