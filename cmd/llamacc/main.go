@@ -54,10 +54,10 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 		client.TraceSpans(&daemon.TraceSpansArgs{Spans: mt.Close()})
 	}()
 
-	if cfg.RemotePreprocess {
-		return buildRemotePreprocess(ctx, client, cfg, comp)
-	} else {
+	if cfg.LocalPreprocess {
 		return buildLocalPreprocess(ctx, client, cfg, comp)
+	} else {
+		return buildRemotePreprocess(ctx, client, cfg, comp)
 	}
 }
 
