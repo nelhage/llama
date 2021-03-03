@@ -85,13 +85,16 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 	span.AddField("object_id", id)
 
+	upload := s.cache.StartUpload(id)
+	defer upload.Rollback()
+
 	if !s.opts.DisableHeadCheck {
 		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: &s.url.Host,
 			Key:    key,
 		})
 		if err == nil {
-			s.cache.AddObject(id)
+			upload.Complete()
 			span.AddField("s3.exists", true)
 			return id, nil
 		}
@@ -112,7 +115,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s.cache.AddObject(id)
+	upload.Complete()
 	return id, nil
 }
 
@@ -138,7 +141,8 @@ func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
 	if gotId != id {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
 	}
-	s.cache.AddObject(id)
+	u := s.cache.StartUpload(id)
+	u.Complete()
 
 	span.AddField("s3.read_bytes", len(body))
 	return body, nil

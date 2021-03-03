@@ -16,26 +16,54 @@ package storeutil
 
 import "sync"
 
+type entry struct {
+	wait chan struct{}
+	ok   bool
+}
+
 type Cache struct {
 	sync.Mutex
-	seen map[string]struct{}
+	seen map[string]*entry
+}
+
+type UploadHandle struct {
+	ent      *entry
+	resolved bool
+}
+
+func (u *UploadHandle) Complete() {
+	u.ent.ok = true
+	u.resolved = true
+	close(u.ent.wait)
+}
+
+func (u *UploadHandle) Rollback() {
+	if u.resolved {
+		return
+	}
+	u.ent.ok = false
+	u.resolved = true
+	close(u.ent.wait)
 }
 
 func (c *Cache) HasObject(id string) bool {
 	c.Lock()
-	defer c.Unlock()
-	if c.seen == nil {
+	ent, ok := c.seen[id]
+	c.Unlock()
+	if !ok {
 		return false
 	}
-	_, ok := c.seen[id]
-	return ok
+	<-ent.wait
+	return ent.ok
 }
 
-func (c *Cache) AddObject(id string) {
+func (c *Cache) StartUpload(id string) UploadHandle {
 	c.Lock()
 	defer c.Unlock()
 	if c.seen == nil {
-		c.seen = make(map[string]struct{})
+		c.seen = make(map[string]*entry)
 	}
-	c.seen[id] = struct{}{}
+	ent := &entry{wait: make(chan struct{})}
+	c.seen[id] = ent
+	return UploadHandle{ent: ent}
 }
