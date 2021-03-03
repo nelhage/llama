@@ -18,7 +18,7 @@ import (
 	"os"
 )
 
-const MaxInlineBlob = 10 * 1024
+const MaxInlineBlob = 100
 
 type Blob struct {
 	String string `json:"s,omitempty"`
