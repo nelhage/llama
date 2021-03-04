@@ -22,12 +22,14 @@ import (
 	"log"
 	"net/url"
 	"path"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/nelhage/llama/tracing"
@@ -47,6 +49,23 @@ type Store struct {
 	cache storeutil.Cache
 }
 
+var (
+	encode *zstd.Encoder
+	decode *zstd.Decoder
+)
+
+func init() {
+	var err error
+	encode, err = zstd.NewWriter(nil)
+	if err != nil {
+		panic(fmt.Sprintf("zstd: init writer: %s", err.Error()))
+	}
+	decode, err = zstd.NewReader(nil)
+	if err != nil {
+		panic(fmt.Sprintf("zstd: init reader: %s", err.Error()))
+	}
+}
+
 func FromSession(s *session.Session, address string) (*Store, error) {
 	return FromSessionAndOptions(s, address, Options{})
 }
@@ -63,6 +82,7 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	svc.Handlers.Sign.PushFront(func(r *request.Request) {
 		r.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
 	})
+
 	return &Store{
 		opts:    opts,
 		session: s,
@@ -74,7 +94,7 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
-	id := storeutil.HashObject(obj)
+	id := storeutil.HashObject(obj) + ":zstd"
 
 	if s.cache.HasObject(id) {
 		return id, nil
@@ -105,10 +125,11 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		}
 	}
 
-	span.AddField("s3.write_bytes", len(obj))
+	compressed := encode.EncodeAll(obj, nil)
+	span.AddField("s3.write_bytes", len(compressed))
 
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
-		Body:   bytes.NewReader(obj),
+		Body:   bytes.NewReader(compressed),
 		Bucket: &s.url.Host,
 		Key:    key,
 	})
@@ -137,9 +158,24 @@ func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	gotId := storeutil.HashObject(body)
-	if gotId != id {
-		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotId, id)
+
+	expectHash := id
+	colon := strings.IndexRune(id, ':')
+	if colon > 0 {
+		expectHash = id[:colon]
+		coding := id[colon+1:]
+		if coding != "zstd" {
+			return nil, fmt.Errorf("%q: unknown compression %s", id, coding)
+		}
+		body, err = decode.DecodeAll(body, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%q: decoding:  %w", id, err)
+		}
+	}
+
+	gotHash := storeutil.HashObject(body)
+	if gotHash != expectHash {
+		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotHash, id)
 	}
 	u := s.cache.StartUpload(id)
 	u.Complete()
