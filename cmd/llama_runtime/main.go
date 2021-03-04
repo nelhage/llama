@@ -38,7 +38,6 @@ import (
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
-	"github.com/nelhage/llama/store/diskcache"
 	"github.com/nelhage/llama/store/s3store"
 	"github.com/nelhage/llama/tracing"
 )
@@ -54,17 +53,20 @@ func initStore() (store.Store, error) {
 	if url == "" {
 		return nil, errors.New("Could not read llama s3 bucket from LLAMA_OBJECT_STORE")
 	}
-	s3, err := s3store.FromSession(session, url)
-	if err != nil {
-		return nil, err
-	}
-
 	cacheDir, err := ioutil.TempDir("", "llama.cache.*")
 	if err != nil {
 		return nil, err
 	}
+	opts := s3store.Options{
+		DiskCachePath:  cacheDir,
+		DiskCacheBytes: DiskCacheLimit,
+	}
+	s3, err := s3store.FromSessionAndOptions(session, url, opts)
+	if err != nil {
+		return nil, err
+	}
 
-	return diskcache.New(s3, cacheDir, DiskCacheLimit), nil
+	return s3, nil
 }
 
 func main() {

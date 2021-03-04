@@ -31,6 +31,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/klauspost/compress/zstd"
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/diskcache"
 	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/nelhage/llama/tracing"
 	"golang.org/x/sync/errgroup"
@@ -38,6 +39,8 @@ import (
 
 type Options struct {
 	DisableHeadCheck bool
+	DiskCachePath    string
+	DiskCacheBytes   uint64
 }
 
 type Store struct {
@@ -46,7 +49,8 @@ type Store struct {
 	s3      *s3.S3
 	url     *url.URL
 
-	cache storeutil.Cache
+	seen storeutil.Cache
+	disk *diskcache.Cache
 }
 
 var (
@@ -83,11 +87,17 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 		r.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
 	})
 
+	var disk *diskcache.Cache
+	if opts.DiskCacheBytes > 0 {
+		disk = diskcache.New(opts.DiskCachePath, opts.DiskCacheBytes)
+	}
+
 	return &Store{
 		opts:    opts,
 		session: s,
 		s3:      svc,
 		url:     u,
+		disk:    disk,
 	}, nil
 }
 
@@ -96,7 +106,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	defer span.End()
 	id := storeutil.HashObject(obj) + ":zstd"
 
-	if s.cache.HasObject(id) {
+	if s.seen.HasObject(id) {
 		return id, nil
 	}
 
@@ -105,7 +115,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 	span.AddField("object_id", id)
 
-	upload := s.cache.StartUpload(id)
+	upload := s.seen.StartUpload(id)
 	defer upload.Rollback()
 
 	if !s.opts.DisableHeadCheck {
@@ -146,17 +156,27 @@ func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get_one")
 	defer span.End()
 
-	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
-		Bucket: &s.url.Host,
-		Key:    aws.String(path.Join(s.url.Path, id)),
-	})
-	if err != nil {
-		return nil, err
+	var body []byte
+	if s.disk != nil {
+		body, _ = s.disk.Get(id)
 	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if body == nil {
+		resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
+			Bucket: &s.url.Host,
+			Key:    aws.String(path.Join(s.url.Path, id)),
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, err = ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		if s.disk != nil {
+			s.disk.Put(id, body)
+		}
 	}
 
 	expectHash := id
@@ -167,6 +187,7 @@ func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
 		if coding != "zstd" {
 			return nil, fmt.Errorf("%q: unknown compression %s", id, coding)
 		}
+		var err error
 		body, err = decode.DecodeAll(body, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%q: decoding:  %w", id, err)
@@ -177,7 +198,7 @@ func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
 	if gotHash != expectHash {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotHash, id)
 	}
-	u := s.cache.StartUpload(id)
+	u := s.seen.StartUpload(id)
 	u.Complete()
 
 	span.AddField("s3.read_bytes", len(body))

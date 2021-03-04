@@ -15,95 +15,51 @@
 package diskcache
 
 import (
-	"context"
 	"crypto/rand"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"testing"
 
-	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/internal/storeutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-type loggingStore struct {
-	inner store.Store
-	gets  []string
-}
-
-func (l *loggingStore) Store(ctx context.Context, data []byte) (string, error) {
-	return l.inner.Store(ctx, data)
-}
-
-func (l *loggingStore) GetObjects(ctx context.Context, gets []store.GetRequest) {
-	for i := range gets {
-		l.gets = append(l.gets, gets[i].Id)
-	}
-	l.inner.GetObjects(ctx, gets)
-}
 
 const (
 	fileA = "test file A\n"
 	fileB = "file b\n"
-	fileC = "yet another file yo\n"
 )
 
 func TestCache(t *testing.T) {
-	ctx := context.Background()
+	cache := New(t.TempDir(), 1024*1024)
 
-	mem := &loggingStore{inner: store.InMemory()}
-	cache := New(mem, t.TempDir(), 1024*1024)
+	idA := storeutil.HashObject([]byte(fileA))
 
-	idA, err := mem.Store(ctx, []byte(fileA))
-	assert.NoError(t, err, "put a")
+	got, ok := cache.Get(idA)
+	assert.False(t, ok)
+	assert.Nil(t, got)
 
-	gets := []store.GetRequest{{Id: idA}}
-	cache.GetObjects(ctx, gets)
-	assert.NoError(t, gets[0].Err)
-	assert.Equal(t, gets[0].Data, []byte(fileA))
+	cache.Put(idA, []byte(fileA))
+	got, ok = cache.Get(idA)
+	assert.True(t, ok)
+	assert.Equal(t, got, []byte(fileA))
 
-	assert.Equal(t, mem.gets, []string{idA})
+	idB := storeutil.HashObject([]byte(fileB))
+	got, ok = cache.Get(idB)
+	assert.False(t, ok)
+	assert.Nil(t, got)
 
-	mem.gets = nil
+	cache.Put(idB, []byte(fileB))
+	got, ok = cache.Get(idA)
+	assert.True(t, ok)
+	assert.Equal(t, got, []byte(fileA))
 
-	// A should now be cached
-	gets = []store.GetRequest{{Id: idA}}
-	cache.GetObjects(ctx, gets)
-	assert.NoError(t, gets[0].Err)
-	assert.Equal(t, gets[0].Data, []byte(fileA))
-	assert.Equal(t, mem.gets, []string(nil))
-
-	idB, err := mem.Store(ctx, []byte(fileB))
-	assert.NoError(t, err, "put b")
-
-	gets = []store.GetRequest{{Id: idA}, {Id: idB}}
-	cache.GetObjects(ctx, gets)
-	assert.Equal(t, gets, []store.GetRequest{
-		{Id: idA, Data: []byte(fileA)},
-		{Id: idB, Data: []byte(fileB)},
-	})
-	assert.Equal(t, mem.gets, []string{idB})
-
-	idC, err := mem.Store(ctx, []byte(fileC))
-	assert.NoError(t, err, "put c")
-
-	mem.gets = nil
-	gets = []store.GetRequest{{Id: idA}, {Id: idC}, {Id: idB}}
-	cache.GetObjects(ctx, gets)
-	assert.Equal(t, gets, []store.GetRequest{
-		{Id: idA, Data: []byte(fileA)},
-		{Id: idC, Data: []byte(fileC)},
-		{Id: idB, Data: []byte(fileB)},
-	})
-	assert.Equal(t, mem.gets, []string{idC})
+	got, ok = cache.Get(idB)
+	assert.True(t, ok)
+	assert.Equal(t, got, []byte(fileB))
 }
 
 func TestEviction(t *testing.T) {
-	ctx := context.Background()
-
-	mem := store.InMemory()
-	cache := New(mem, t.TempDir(), 1024)
+	cache := New(t.TempDir(), 1024)
 
 	smallObjs := [][]byte{
 		[]byte("a"),
@@ -111,35 +67,31 @@ func TestEviction(t *testing.T) {
 		[]byte("c"),
 	}
 	var smallIds []string
-	var gets []store.GetRequest
 	for _, o := range smallObjs {
-		id, err := mem.Store(ctx, o)
-		require.NoError(t, err)
+		id := storeutil.HashObject(o)
 		smallIds = append(smallIds, id)
-		gets = append(gets, store.GetRequest{Id: id})
+		cache.Put(id, o)
 	}
 
-	cache.GetObjects(ctx, gets)
 	assert.Equal(t, 3, len(cache.objects.have))
 
 	bigObject := make([]byte, 1024-5-len(smallIds[0]))
 	rand.Reader.Read(bigObject)
 
-	bigId, err := mem.Store(ctx, bigObject)
-	require.NoError(t, err)
+	bigId := storeutil.HashObject(bigObject)
 
-	gets = []store.GetRequest{{Id: bigId}}
-	cache.GetObjects(ctx, gets)
+	cache.Put(bigId, bigObject)
 	assert.Equal(t, 1, len(cache.objects.have))
 	assert.NotNil(t, cache.objects.have[bigId])
-	log.Printf("bytes=%d", cache.objects.bytes)
 	assert.LessOrEqual(t, cache.objects.bytes, uint64(1024))
 
 	tooBig := append(bigObject, bigObject...)
-	tooBigId, err := mem.Store(ctx, tooBig)
-	require.NoError(t, err)
-	gets = []store.GetRequest{{Id: tooBigId}}
-	cache.GetObjects(ctx, gets)
+	tooBigId := storeutil.HashObject(tooBig)
+	cache.Put(tooBigId, tooBig)
+
+	got, ok := cache.Get(tooBigId)
+	assert.Nil(t, got)
+	assert.False(t, ok)
 	assert.Equal(t, 0, len(cache.objects.have))
 	filepath.Walk(cache.root, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
