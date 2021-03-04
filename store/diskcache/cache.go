@@ -146,7 +146,6 @@ func (st *Store) addToCache(id string, data []byte) {
 	for st.objects.bytes > st.maxBytes {
 		// prune the tail object
 		ent := st.objects.head.prev
-		log.Printf("prune bytes=%d lim=%d next=%q", st.objects.bytes, st.maxBytes, ent.id)
 		os.Remove(st.pathFor(ent.id))
 		st.objects.head.prev = ent.prev
 		ent.prev.next = &st.objects.head
