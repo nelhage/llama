@@ -152,62 +152,80 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 const getConcurrency = 32
 
-func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
+func (s *Store) getFromS3(ctx context.Context, id string) ([]byte, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get_one")
 	defer span.End()
 
-	var body []byte
+	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		Bucket: &s.url.Host,
+		Key:    aws.String(path.Join(s.url.Path, id)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	span.AddField("s3.read_bytes", len(body))
 	if s.disk != nil {
-		body, _ = s.disk.Get(id)
+		s.disk.Put(id, body)
 	}
-	if body == nil {
-		resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
-			Bucket: &s.url.Host,
-			Key:    aws.String(path.Join(s.url.Path, id)),
-		})
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		body, err = ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
+	return body, nil
+}
 
-		if s.disk != nil {
-			s.disk.Put(id, body)
-		}
-	}
-
+func (s *Store) decompress(id string, body []byte) (string, []byte, error) {
 	expectHash := id
 	colon := strings.IndexRune(id, ':')
 	if colon > 0 {
 		expectHash = id[:colon]
 		coding := id[colon+1:]
 		if coding != "zstd" {
-			return nil, fmt.Errorf("%q: unknown compression %s", id, coding)
+			return expectHash, nil, fmt.Errorf("%q: unknown compression %s", id, coding)
 		}
 		var err error
 		body, err = decode.DecodeAll(body, nil)
 		if err != nil {
-			return nil, fmt.Errorf("%q: decoding:  %w", id, err)
+			return expectHash, nil, fmt.Errorf("%q: decoding:  %w", id, err)
+		}
+	}
+	return expectHash, body, nil
+}
+
+func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
+	var body []byte
+	if s.disk != nil {
+		body, _ = s.disk.Get(id)
+	}
+	if body == nil {
+		var err error
+		body, err = s.getFromS3(ctx, id)
+		if err != nil {
+			return nil, err
 		}
 	}
 
+	hash, body, err := s.decompress(id, body)
+	if err != nil {
+		return nil, err
+	}
+
 	gotHash := storeutil.HashObject(body)
-	if gotHash != expectHash {
+	if gotHash != hash {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotHash, id)
 	}
 	u := s.seen.StartUpload(id)
 	u.Complete()
 
-	span.AddField("s3.read_bytes", len(body))
 	return body, nil
 }
 
 func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get_objects")
 	defer span.End()
+	span.AddField("objects", len(gets))
 	grp, ctx := errgroup.WithContext(ctx)
 	jobs := make(chan int)
 
