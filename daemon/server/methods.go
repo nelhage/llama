@@ -96,6 +96,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	{
 		ctx, sb := tracing.StartSpan(ctx, "upload")
+		sb.AddField("files", len(in.Files))
 		var err error
 		args.Spec.Files, err = in.Files.Upload(ctx, d.store, nil)
 		if err != nil {
