@@ -82,6 +82,9 @@ func remap(local, wd string) files.Mapped {
 
 func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
 	args, err := buildRemoteInvoke(ctx, cfg, comp)
+	if err != nil {
+		return err
+	}
 	args.Trace = tracing.PropagationFromContext(ctx)
 	out, err := client.InvokeWithFiles(args)
 	if err != nil {
