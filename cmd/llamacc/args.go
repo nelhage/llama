@@ -85,6 +85,7 @@ func (c *Compilation) Compiler() string {
 type Flags struct {
 	MD  bool
 	MMD bool
+	MP  bool
 	MF  string
 
 	C bool
@@ -153,6 +154,10 @@ var argSpecs = []argSpec{
 	{"-MT", func(c *Compilation, _ string) (filterWhere, error) {
 		return filterRemote, nil
 	}, true},
+	{"-MP", func(c *Compilation, _ string) (filterWhere, error) {
+		c.Flag.MP = true
+		return filterRemote, nil
+	}, false},
 	{"-D", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Defs = append(c.Defs, Def{"-D", arg})
 		return filterRemote, nil

@@ -159,6 +159,9 @@ func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*da
 	if comp.Flag.MMD {
 		args.Args = append(args.Args, "-MMD")
 	}
+	if comp.Flag.MP {
+		args.Args = append(args.Args, "-MP")
+	}
 	if comp.Flag.MF != "" {
 		args.Args = append(args.Args, "-MF", toRemote(comp.Flag.MF+".tmp", wd))
 	}
