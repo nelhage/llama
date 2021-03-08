@@ -140,18 +140,15 @@ func TestRunOne(t *testing.T) {
 		t.Fatal("runOne", err)
 	}
 
+	// c.txt is not created and will not be included in the
+	// outputs
+	assert.Equal(t, 1, len(resp.Outputs))
+
 	b_blob := resp.Outputs[0]
 	assert.Equal(t, "b.txt", b_blob.Path)
 	b_txt, err := files.Read(ctx, st, &b_blob.Blob)
-	if err != nil {
-		t.Errorf("Read b.txt: %s", err.Error())
-	} else if string(b_txt) != contentsA+"World\n" {
-		t.Errorf("Read b.txt: wrong contents %s", b_txt)
-	}
-
-	if c := resp.Outputs[1]; c.Err == "" {
-		t.Errorf("reading c: expected error, got %#v", c)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, contentsA+"World\n", string(b_txt))
 }
 
 func TestRunOne_NoCmdLine(t *testing.T) {
