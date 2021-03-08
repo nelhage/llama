@@ -261,6 +261,9 @@ func executeJob(ctx context.Context, store store.Store,
 		for _, out := range job.Outputs {
 			file, err := files.ReadFile(ctx, store, path.Join(parsed.Root, out))
 			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
 				file = &protocol.File{
 					Blob: protocol.Blob{
 						Err: err.Error(),
