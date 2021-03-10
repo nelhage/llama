@@ -44,7 +44,6 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
 		preprocessor.Args = append(preprocessor.Args, opt.Path)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
 	preprocessor.Args = append(preprocessor.Args, "-MM", "-MF", "-", comp.Input)
 	var deps bytes.Buffer
 	preprocessor.Stdout = &deps
