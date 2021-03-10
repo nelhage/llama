@@ -61,20 +61,21 @@ func runLlamaCC(cfg *Config, comp *Compilation) error {
 	}
 }
 
-func toRemote(local, wd string) string {
-	var remote string
-	if local[0] == '/' {
-		remote = local[1:]
-	} else {
-		remote = path.Join(wd, local)[1:]
+func toAbs(local, wd string) string {
+	if path.IsAbs(local) {
+		return local
 	}
-	return path.Join("_root", remote)
+	return path.Join(wd, local)
+}
+
+func toRemote(local, wd string) string {
+	return path.Join("_root", toAbs(local, wd))
 }
 
 func remap(local, wd string) files.Mapped {
 	return files.Mapped{
 		Local: files.LocalFile{
-			Path: path.Join(wd, local),
+			Path: toAbs(local, wd),
 		},
 		Remote: toRemote(local, wd),
 	}
