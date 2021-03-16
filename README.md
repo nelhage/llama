@@ -122,10 +122,10 @@ above. It's well-commented and explains the pattern you need to wrap
 an arbitrary image inside of Llama.
 
 We can build that `optipng` container and publish it as a Lambda
-function using `scripts/new-function` in this repository:
+function using `scripts/update-function` in this repository:
 
 ```console
-$ scripts/new-function optipng images/optipng
+$ scripts/update-function optipng images/optipng
 ```
 
 We're now ready to `llama invoke optipng`. Try it out:
@@ -147,7 +147,7 @@ repository, or copy the pattern there if you need a different GCC
 version. Build and upload it like so:
 
 ```
-$ scripts/new-function gcc images/gcc-9_3
+$ scripts/update-function gcc images/gcc-9_3
 ```
 
 And now you can use `llamacc` to compile code, just like `gcc`, except
@@ -208,7 +208,7 @@ lambda. First, we need to make the Llama runtime available as a Lambda
 layer:
 
 ```console
-$ llama_runtime_arn=$(scripts/publish-runtime)
+$ llama_runtime_arn=$(scripts/dev/publish-runtime)
 ```
 
 Now we can create a zip file containing our code, and publish the

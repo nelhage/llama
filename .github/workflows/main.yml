@@ -23,4 +23,4 @@ jobs:
           PATH=$PATH:$(pwd)/install go test -tags llama.runtime ./...
       - name: Check license headers
         run: |
-          ./scripts/check-license
+          ./scripts/dev/check-license

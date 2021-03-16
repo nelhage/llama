@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eu
-root=$(readlink -f "$(dirname "$0")/..")
+root=$(readlink -f "$(dirname "$0")/../..")
 cd "$root"
 eval "$(llama config -shell)"
 container="$1"

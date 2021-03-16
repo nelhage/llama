@@ -1,0 +1,31 @@
+#!/bin/bash
+set -eu
+root=$(readlink -f "$(dirname "$0")/..")
+cd "$root"
+container="$1"
+path="${2-images/$container}"
+eval "$(llama config -shell)"
+scripts/lib/build-container "$container" "$path"
+repository_tag="$llama_ecr_repository:$container"
+
+stderr=$(
+    aws --region "$llama_region" lambda update-function-code \
+        --function-name "$container" \
+        --image-uri "${repository_tag}" 2>&1 >/dev/null) || err=$?
+if [ "${err-0}" -ne 0 ]; then
+    if echo "$stderr" | grep -q "ResourceNotFoundException"; then
+        echo "Function $container does not exist. Creating..."
+        aws --region "$llama_region" lambda create-function \
+            --function-name "$container" --memory-size 1769 \
+            --role "$llama_iam_role" \
+            --environment "Variables={LLAMA_OBJECT_STORE=$llama_object_store}" \
+            --timeout 60 \
+            --package-type Image \
+            --tags LlamaFunction=true \
+            --code "ImageUri=${repository_tag}" >/dev/null
+    else
+        echo "$stderr" >&2
+        exit 1
+    fi
+fi
+scripts/lib/wait-for-function "$container"
