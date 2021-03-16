@@ -29,6 +29,7 @@ import (
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/daemon/server"
+	"golang.org/x/sys/unix"
 )
 
 type DaemonCommand struct {
@@ -57,6 +58,22 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.detach, "detach", false, "Detach and run the server in the background")
 	flags.StringVar(&c.path, "path", cli.SocketPath(), "Path to daemon socket")
 	flags.DurationVar(&c.idleTimeout, "idle-timeout", 10*time.Minute, "Idle timeout")
+}
+
+func raiseRlimits() {
+	var limits unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &limits); err != nil {
+		log.Printf("Warning: Unable to read RLIMIT_NOFILE: %s", err.Error())
+		return
+	}
+	target := uint64(65535)
+	limits.Cur = target
+	if limits.Cur > limits.Max {
+		limits.Cur = limits.Max
+	}
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &limits); err != nil {
+		log.Printf("Warning: setting RLIMIT_NOFILE: %s", err.Error())
+	}
 }
 
 func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -91,6 +108,7 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		}
 		return subcommands.ExitSuccess
 	} else if c.start || c.autostart {
+		raiseRlimits()
 		if c.detach {
 			cmd := exec.Command("/proc/self/exe", "daemon", "-start",
 				"-idle-timeout", c.idleTimeout.String(),
