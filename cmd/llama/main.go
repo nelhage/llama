@@ -38,6 +38,7 @@ func main() {
 	subcommands.Register(&XargsCommand{}, "")
 	subcommands.Register(&DaemonCommand{}, "")
 
+	subcommands.Register(&PreloadCommand{}, "internals")
 	subcommands.Register(&StoreCommand{}, "internals")
 	subcommands.Register(&GetCommand{}, "internals")
 	subcommands.Register(&trace.TraceCommand{}, "tracing")

@@ -16,9 +16,13 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
+	"path/filepath"
+	"regexp"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +32,7 @@ import (
 	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/tracing"
+	"golang.org/x/sync/errgroup"
 )
 
 func (d *Daemon) Ping(in daemon.PingArgs, reply *daemon.PingReply) error {
@@ -214,5 +219,69 @@ func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) er
 func (d *Daemon) TraceSpans(in *daemon.TraceSpansArgs, out *daemon.TraceSpansReply) error {
 	tracing.SubmitAll(d.ctx, in.Spans)
 	*out = daemon.TraceSpansReply{}
+	return nil
+}
+
+const preloadThreads = 32
+
+func (d *Daemon) PreloadPaths(in *daemon.PreloadPathsArgs, out *daemon.PreloadPathsResult) error {
+	grp, ctx := errgroup.WithContext(d.ctx)
+	paths := make(chan string)
+	var preloaded uint64
+	for i := 0; i < preloadThreads; i++ {
+		grp.Go(func() error {
+			for {
+				select {
+				case path, ok := <-paths:
+					if !ok {
+						return nil
+					}
+					data, err := ioutil.ReadFile(path)
+					if err != nil {
+						return err
+					}
+					if _, err := d.store.Store(ctx, data); err != nil {
+						return err
+					}
+					atomic.AddUint64(&preloaded, 1)
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+		})
+	}
+	grp.Go(func() error {
+		defer close(paths)
+		for _, path := range in.Paths {
+			paths <- path
+		}
+		for _, req := range in.Trees {
+			re, err := regexp.Compile(req.Pattern)
+			if err != nil {
+				return err
+			}
+			err = filepath.WalkDir(req.Path, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					return nil
+				}
+				if re.MatchString(d.Name()) {
+					paths <- path
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	err := grp.Wait()
+	if err != nil {
+		return err
+	}
+	*out = daemon.PreloadPathsResult{Preloaded: preloaded}
 	return nil
 }

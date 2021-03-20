@@ -78,3 +78,19 @@ type TraceSpansArgs struct {
 }
 
 type TraceSpansReply struct{}
+
+type PreloadTree struct {
+	Path string
+
+	// A regular expression; will be matched against the file
+	// basename.
+	Pattern string
+}
+
+type PreloadPathsArgs struct {
+	Paths []string
+	Trees []PreloadTree
+}
+type PreloadPathsResult struct {
+	Preloaded uint64
+}

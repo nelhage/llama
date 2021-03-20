@@ -53,3 +53,9 @@ func (c *Client) TraceSpans(in *TraceSpansArgs) (*TraceSpansReply, error) {
 	err := c.conn.Call("Daemon.TraceSpans", in, &out)
 	return &out, err
 }
+
+func (c *Client) PreloadPaths(in *PreloadPathsArgs) (*PreloadPathsResult, error) {
+	var out PreloadPathsResult
+	err := c.conn.Call("Daemon.PreloadPaths", in, &out)
+	return &out, err
+}
