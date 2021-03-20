@@ -82,11 +82,29 @@ func remap(local, wd string) files.Mapped {
 }
 
 func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
+	preload := make(chan struct{})
+	// buildRemoteInvoke will take some time to run `gcc` locally
+	// in order to discover dependencies. While it runs, we can at
+	// least start uploading the .c file we _know_ we will need to
+	// upload.
+	//
+	// During a build, we will likely eventually have uploaded all
+	// the header files, which means that this input file may be
+	// the _only_ source file we need to upload, and so getting a
+	// head-start on it can be a substantial performance
+	// improvement.
+	go func() {
+		defer close(preload)
+		_, span := tracing.StartSpan(ctx, "preload")
+		defer span.End()
+		client.PreloadPaths(&daemon.PreloadPathsArgs{Paths: []string{comp.Input}})
+	}()
 	args, err := buildRemoteInvoke(ctx, cfg, comp)
 	if err != nil {
 		return err
 	}
 	args.Trace = tracing.PropagationFromContext(ctx)
+	<-preload
 	out, err := client.InvokeWithFiles(args)
 	if err != nil {
 		return err
