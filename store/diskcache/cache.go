@@ -15,25 +15,19 @@
 package diskcache
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"path"
 	"sync"
-
-	"github.com/golang/snappy"
-	"github.com/nelhage/llama/store"
-	"github.com/nelhage/llama/tracing"
 )
 
 const debugCache = false
 
-type Store struct {
+type Cache struct {
 	maxBytes uint64
 	root     string
-	inner    store.Store
 
 	objects objectTracker
 }
@@ -74,11 +68,10 @@ type entry struct {
 	prev  *entry
 }
 
-func New(inner store.Store, path string, limit uint64) *Store {
-	st := &Store{
+func New(path string, limit uint64) *Cache {
+	st := &Cache{
 		maxBytes: limit,
 		root:     path,
-		inner:    inner,
 		objects: objectTracker{
 			have: make(map[string]*entry),
 		},
@@ -88,27 +81,38 @@ func New(inner store.Store, path string, limit uint64) *Store {
 	return st
 }
 
-func (st *Store) Store(ctx context.Context, obj []byte) (string, error) {
-	return st.inner.Store(ctx, obj)
+func (st *Cache) Put(key string, obj []byte) {
+	st.addToCache(key, obj)
 }
 
-func (st *Store) pathFor(id string) string {
+func (st *Cache) Get(key string) ([]byte, bool) {
+	st.objects.Lock()
+	defer st.objects.Unlock()
+	if _, ok := st.objects.have[key]; !ok {
+		return nil, false
+	}
+	data, err := st.getOneCached(key)
+	if err != nil {
+		log.Printf("cache.get(%q): %s", key, err.Error())
+	}
+	return data, true
+}
+
+func (st *Cache) pathFor(id string) string {
 	return path.Join(st.root, id[:2], id[2:])
 }
 
-func (st *Store) getOneCached(id string) ([]byte, error) {
+func (st *Cache) getOneCached(id string) ([]byte, error) {
 	data, err := ioutil.ReadFile(st.pathFor(id))
 	if err != nil {
 		return nil, err
 	}
-	uncompressed, err := snappy.Decode(nil, data)
-	if err != nil {
-		return nil, err
-	}
-	return uncompressed, nil
+	return data, nil
 }
 
-func (st *Store) addToCache(id string, data []byte) {
+func (st *Cache) addToCache(id string, data []byte) {
+	st.objects.Lock()
+	defer st.objects.Unlock()
 	ent, ok := st.objects.have[id]
 	if ok {
 		// Already in cache; move to the head of the LRU list.
@@ -118,15 +122,14 @@ func (st *Store) addToCache(id string, data []byte) {
 		ent.next.prev = ent.prev
 		st.objects.bytes -= ent.bytes
 	} else {
-		compressed := snappy.Encode(nil, data)
 		ent = &entry{
 			id:    id,
-			bytes: uint64(len(id) + len(compressed)),
+			bytes: uint64(len(id) + len(data)),
 		}
 		file := st.pathFor(id)
 		os.Mkdir(path.Dir(file), 0755)
-		if err := ioutil.WriteFile(file, compressed, 0644); err != nil {
-			log.Printf("Error writing to cach! path=%s err=%q", file, err.Error())
+		if err := ioutil.WriteFile(file, data, 0644); err != nil {
+			log.Printf("Error writing to cache! path=%s err=%q", file, err.Error())
 			return
 		}
 		st.objects.have[id] = ent
@@ -152,51 +155,5 @@ func (st *Store) addToCache(id string, data []byte) {
 		delete(st.objects.have, ent.id)
 		st.objects.bytes -= ent.bytes
 		st.objects.checkConsistency()
-	}
-}
-
-func (st *Store) fillFromCache(gets []store.GetRequest) []store.GetRequest {
-	st.objects.Lock()
-	defer st.objects.Unlock()
-	var todo []store.GetRequest
-	for i := range gets {
-		if _, ok := st.objects.have[gets[i].Id]; ok {
-			gets[i].Data, gets[i].Err = st.getOneCached(gets[i].Id)
-		} else {
-			gets[i].Data = nil
-			gets[i].Err = nil
-			todo = append(todo, gets[i])
-		}
-	}
-	return todo
-}
-
-func (st *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
-	ctx, span := tracing.StartSpan(ctx, "cached_get")
-	defer span.End()
-
-	span.AddField("objects", len(gets))
-	todo := st.fillFromCache(gets)
-	span.AddField("hits", len(gets)-len(todo))
-
-	st.inner.GetObjects(ctx, todo)
-	gi := 0
-	for _, got := range todo {
-		for gi < len(gets) && (gets[gi].Data != nil || gets[gi].Err != nil) {
-			gi += 1
-		}
-		if gi == len(gets) || gets[gi].Id != got.Id {
-			panic(fmt.Sprintf("internal consistency error, gets[%d].Id=%s, todo.Id=%s", gi, gets[gi].Id, got.Id))
-		}
-		gets[gi] = got
-		gi += 1
-	}
-
-	st.objects.Lock()
-	defer st.objects.Unlock()
-	for _, got := range todo {
-		if got.Err == nil {
-			st.addToCache(got.Id, got.Data)
-		}
 	}
 }

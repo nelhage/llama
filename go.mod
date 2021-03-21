@@ -9,6 +9,7 @@ require (
 	github.com/golang/snappy v0.0.2
 	github.com/google/subcommands v1.2.0
 	github.com/jaegertracing/jaeger v1.21.0
+	github.com/klauspost/compress v1.11.9 // indirect
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
