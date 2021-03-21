@@ -88,10 +88,12 @@ func (s *Store) Usage() UsageMetrics {
 	return s.metrics
 }
 
-func (s *Store) ResetUsage() {
+func (s *Store) ResetUsage() UsageMetrics {
 	s.metricsMu.Lock()
 	defer s.metricsMu.Unlock()
+	out := s.metrics
 	s.metrics = UsageMetrics{}
+	return out
 }
 
 func (s *Store) addUsage(add *UsageMetrics) {

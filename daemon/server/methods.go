@@ -27,6 +27,7 @@ import (
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/s3store"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -118,6 +119,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_invoke := time.Now()
 
+	atomic.AddUint64(&d.stats.Usage.Lambda_Requests, 1)
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, d.store, &args)
 	if invokeErr != nil {
 		sb.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
@@ -135,6 +137,14 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	t_fetch := time.Now()
 
 	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
+	atomic.AddUint64(&d.stats.Usage.Lambda_MB_Millis, repl.Response.Usage.Lambda_MB_Millis)
+	atomic.AddUint64(&d.stats.Usage.Lambda_Millis, repl.Response.Usage.Lambda_Millis)
+	atomic.AddUint64(&d.stats.Usage.S3_Read_Requests, repl.Response.Usage.S3_Read_Requests)
+	atomic.AddUint64(&d.stats.Usage.S3_Write_Requests, repl.Response.Usage.S3_Write_Requests)
+	atomic.AddUint64(&d.stats.Usage.S3_Xfer_In, repl.Response.Usage.S3_Xfer_In)
+
+	// Transfer out from S3 to EC2 is free, so we deliberately do
+	// _not_ accumulate S3_Xfer_Out here.
 
 	var gets []store.GetRequest
 
@@ -200,14 +210,27 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 }
 
 func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) error {
+	if s3, ok := d.store.(*s3store.Store); ok {
+		s3usage := s3.ResetUsage()
+		atomic.AddUint64(&d.stats.Usage.S3_Read_Requests, s3usage.ReadRequests)
+		atomic.AddUint64(&d.stats.Usage.S3_Write_Requests, s3usage.WriteRequests)
+		atomic.AddUint64(&d.stats.Usage.S3_Xfer_In, s3usage.XferIn)
+		atomic.AddUint64(&d.stats.Usage.S3_Xfer_Out, s3usage.XferOut)
+	}
+
+	// TODO: We should really read this a field-at-a-time
+	// using `atomic.LoadUint64`, although I don't believe
+	// that can make any difference on any platform I'm
+	// aware of. In either case we won't get a consistent
+	// snapshot of the entire stats struct. We could just
+	// use a mutex, I guess.
+	stats := d.stats
+
 	*out = daemon.StatsReply{
-		// TODO: We should really read this a field-at-a-time
-		// using `atomic.LoadUint64`, although I don't believe
-		// that can make any difference on any platform I'm
-		// aware of. In either case we won't get a consistent
-		// snapshot of the entire stats struct. We could just
-		// use a mutex, I guess.
-		Stats: d.stats,
+		Stats: stats,
+	}
+	if in.Reset {
+		d.stats = daemon.Stats{}
 	}
 	return nil
 }
