@@ -29,12 +29,23 @@ type InvocationSpec struct {
 }
 
 type InvocationResponse struct {
-	ExitStatus int      `json:"status"`
-	Stdout     *Blob    `json:"stdout,omitempty"`
-	Stderr     *Blob    `json:"stderr,omitempty"`
-	Outputs    FileList `json:"outputs,omitempty"`
-	Spans      *Blob    `json:"spans,omitempty"`
-	Times      Timing   `json:"times"`
+	ExitStatus int          `json:"status"`
+	Stdout     *Blob        `json:"stdout,omitempty"`
+	Stderr     *Blob        `json:"stderr,omitempty"`
+	Outputs    FileList     `json:"outputs,omitempty"`
+	Spans      *Blob        `json:"spans,omitempty"`
+	Usage      UsageMetrics `json:"usage"`
+	Times      Timing       `json:"times"`
+}
+
+type UsageMetrics struct {
+	Lambda_Millis     uint64
+	Lambda_MB_Millis  uint64
+	Lambda_Requests   uint64
+	S3_Write_Requests uint64
+	S3_Read_Requests  uint64
+	S3_Xfer_In        uint64
+	S3_Xfer_Out       uint64
 }
 
 type Timing struct {

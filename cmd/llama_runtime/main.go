@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,8 +90,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	cmdline := computeCmdline(os.Args[1:])
 	lambda.StartWithContext(ctx, func(ctx context.Context, req *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-		cmdline := computeCmdline(os.Args[1:])
 		return runOne(ctx, store, cmdline, req)
 	})
 }
@@ -142,10 +143,29 @@ var jobs = 0
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
+	start := time.Now()
 
 	var tracer *tracing.MemoryTracer
 	var resp *protocol.InvocationResponse
 	var err error
+
+	defer func() {
+		if resp == nil {
+			return
+		}
+		if s3, ok := store.(*s3store.Store); ok {
+			s3usage := s3.ResetUsage()
+			resp.Usage.S3_Read_Requests = s3usage.ReadRequests
+			resp.Usage.S3_Write_Requests = s3usage.WriteRequests
+			resp.Usage.S3_Xfer_In = s3usage.XferIn
+			resp.Usage.S3_Xfer_Out = s3usage.XferOut
+		} else {
+			fmt.Fprintf(os.Stderr, "not an s3 store? %#v", store)
+		}
+		mem, _ := strconv.ParseUint(os.Getenv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"), 10, 64)
+		resp.Usage.Lambda_Millis = uint64((time.Since(start) + 3*time.Millisecond/2 - 1).Milliseconds())
+		resp.Usage.Lambda_MB_Millis = resp.Usage.Lambda_Millis * mem
+	}()
 
 	if job.Trace != nil {
 		var span *tracing.SpanBuilder

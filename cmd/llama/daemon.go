@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/google/subcommands"
@@ -105,6 +106,43 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 			fmt.Fprintf(os.Stdout, "invocations=%d\n", stats.Stats.Invocations)
 			fmt.Fprintf(os.Stdout, "func_errors=%d\n", stats.Stats.FunctionErrors)
 			fmt.Fprintf(os.Stdout, "other_errors=%d\n", stats.Stats.OtherErrors)
+			fmt.Fprintf(os.Stdout, "AWS Usage:\n")
+			cost := 0.0
+			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+			fmt.Fprintf(tw, "  Lambda runtime\tms\t%d\n", stats.Stats.Usage.Lambda_Millis)
+			fmt.Fprintf(tw, "  Lambda runtime\tMB-ms\t%d\t$%.2f\n",
+				stats.Stats.Usage.Lambda_MB_Millis,
+				float64(stats.Stats.Usage.Lambda_MB_Millis)*0.0000166667/1000000,
+			)
+			cost += float64(stats.Stats.Usage.Lambda_MB_Millis) * 0.0000166667 / 1000000
+			fmt.Fprintf(tw, "  Lambda requests\t\t%d\t$%.2f\n",
+				stats.Stats.Usage.Lambda_Requests,
+				float64(stats.Stats.Usage.Lambda_Requests)*0.20/1000000,
+			)
+			cost += float64(stats.Stats.Usage.Lambda_Requests) * 0.20 / 1000000
+			fmt.Fprintf(tw, "  S3 Write requests\t\t%d\t$%.2f\n",
+				stats.Stats.Usage.S3_Write_Requests,
+				0.005/1000*float64(stats.Stats.Usage.S3_Write_Requests),
+			)
+			cost += 0.005 / 1000 * float64(stats.Stats.Usage.S3_Write_Requests)
+			fmt.Fprintf(tw, "  S3 Read requests\t\t%d\t$%.2f\n",
+				stats.Stats.Usage.S3_Read_Requests,
+				0.0004/1000*float64(stats.Stats.Usage.S3_Read_Requests),
+			)
+			cost += 0.0004 / 1000 * float64(stats.Stats.Usage.S3_Read_Requests)
+			fmt.Fprintf(tw, "  S3 Xfer in\tMB\t%d\t$%.2f\n",
+				stats.Stats.Usage.S3_Xfer_In/(1024*1024),
+				0.0,
+			)
+			fmt.Fprintf(tw, "  S3 Xfer out\tMB\t%d\t$%.2f\n",
+				stats.Stats.Usage.S3_Xfer_Out/(1024*1024),
+				float64(stats.Stats.Usage.S3_Xfer_Out)*0.09/(1024*1024*1024),
+			)
+			cost += float64(stats.Stats.Usage.S3_Xfer_Out) * 0.09 / (1024 * 1024 * 1024)
+			fmt.Fprintf(tw, "  Total\t$\t\t$%.2f\n",
+				cost,
+			)
+			tw.Flush()
 		}
 		return subcommands.ExitSuccess
 	} else if c.start || c.autostart {

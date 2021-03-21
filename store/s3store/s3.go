@@ -23,6 +23,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -51,6 +53,16 @@ type Store struct {
 
 	seen storeutil.Cache
 	disk *diskcache.Cache
+
+	metricsMu sync.Mutex
+	metrics   UsageMetrics
+}
+
+type UsageMetrics struct {
+	ReadRequests  uint64
+	WriteRequests uint64
+	XferIn        uint64
+	XferOut       uint64
 }
 
 var (
@@ -68,6 +80,29 @@ func init() {
 	if err != nil {
 		panic(fmt.Sprintf("zstd: init reader: %s", err.Error()))
 	}
+}
+
+func (s *Store) Usage() UsageMetrics {
+	s.metricsMu.Lock()
+	defer s.metricsMu.Unlock()
+	return s.metrics
+}
+
+func (s *Store) ResetUsage() UsageMetrics {
+	s.metricsMu.Lock()
+	defer s.metricsMu.Unlock()
+	out := s.metrics
+	s.metrics = UsageMetrics{}
+	return out
+}
+
+func (s *Store) addUsage(add *UsageMetrics) {
+	s.metricsMu.Lock()
+	defer s.metricsMu.Unlock()
+	s.metrics.ReadRequests += add.ReadRequests
+	s.metrics.WriteRequests += add.WriteRequests
+	s.metrics.XferOut += add.XferOut
+	s.metrics.XferIn += add.XferIn
 }
 
 func FromSession(s *session.Session, address string) (*Store, error) {
@@ -106,6 +141,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	defer span.End()
 	id := storeutil.HashObject(obj) + ":zstd"
 
+	span.AddField("object_id", id)
 	if s.seen.HasObject(id) {
 		return id, nil
 	}
@@ -113,12 +149,14 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
-	span.AddField("object_id", id)
+	var usage UsageMetrics
+	defer s.addUsage(&usage)
 
 	upload := s.seen.StartUpload(id)
 	defer upload.Rollback()
 
 	if !s.opts.DisableHeadCheck {
+		usage.ReadRequests += 1
 		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: &s.url.Host,
 			Key:    key,
@@ -138,6 +176,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	compressed := encode.EncodeAll(obj, nil)
 	span.AddField("s3.write_bytes", len(compressed))
 
+	usage.WriteRequests += 1
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(compressed),
 		Bucket: &s.url.Host,
@@ -146,16 +185,18 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.metrics.XferIn += uint64(len(obj))
 	upload.Complete()
 	return id, nil
 }
 
 const getConcurrency = 32
 
-func (s *Store) getFromS3(ctx context.Context, id string) ([]byte, error) {
+func (s *Store) getFromS3(ctx context.Context, id string, usage *UsageMetrics) ([]byte, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get_one")
 	defer span.End()
 
+	atomic.AddUint64(&usage.ReadRequests, 1)
 	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: &s.url.Host,
 		Key:    aws.String(path.Join(s.url.Path, id)),
@@ -170,6 +211,8 @@ func (s *Store) getFromS3(ctx context.Context, id string) ([]byte, error) {
 	}
 
 	span.AddField("s3.read_bytes", len(body))
+	atomic.AddUint64(&usage.XferOut, uint64(len(body)))
+
 	if s.disk != nil {
 		s.disk.Put(id, body)
 	}
@@ -194,14 +237,14 @@ func (s *Store) decompress(id string, body []byte) (string, []byte, error) {
 	return expectHash, body, nil
 }
 
-func (s *Store) getOne(ctx context.Context, id string) ([]byte, error) {
+func (s *Store) getOne(ctx context.Context, id string, usage *UsageMetrics) ([]byte, error) {
 	var body []byte
 	if s.disk != nil {
 		body, _ = s.disk.Get(id)
 	}
 	if body == nil {
 		var err error
-		body, err = s.getFromS3(ctx, id)
+		body, err = s.getFromS3(ctx, id, usage)
 		if err != nil {
 			return nil, err
 		}
@@ -229,6 +272,9 @@ func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
 	grp, ctx := errgroup.WithContext(ctx)
 	jobs := make(chan int)
 
+	var usage UsageMetrics
+	defer s.addUsage(&usage)
+
 	grp.Go(func() error {
 		defer close(jobs)
 		for i := range gets {
@@ -239,7 +285,7 @@ func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
 	for i := 0; i < getConcurrency; i++ {
 		grp.Go(func() error {
 			for idx := range jobs {
-				gets[idx].Data, gets[idx].Err = s.getOne(ctx, gets[idx].Id)
+				gets[idx].Data, gets[idx].Err = s.getOne(ctx, gets[idx].Id, &usage)
 			}
 			return nil
 		})

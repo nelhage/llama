@@ -66,9 +66,13 @@ type Stats struct {
 	FunctionErrors uint64
 	OtherErrors    uint64
 	ExitStatuses   [256]uint64
+
+	Usage protocol.UsageMetrics
 }
 
-type StatsArgs struct{}
+type StatsArgs struct {
+	Reset bool
+}
 type StatsReply struct {
 	Stats Stats
 }
