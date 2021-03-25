@@ -40,9 +40,9 @@ import (
 )
 
 type Options struct {
-	DisableHeadCheck bool
-	DiskCachePath    string
-	DiskCacheBytes   uint64
+	SimulateColdStore bool
+	DiskCachePath     string
+	DiskCacheBytes    uint64
 }
 
 type Store struct {
@@ -155,12 +155,18 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	upload := s.seen.StartUpload(id)
 	defer upload.Rollback()
 
-	if !s.opts.DisableHeadCheck {
-		usage.ReadRequests += 1
-		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: &s.url.Host,
-			Key:    key,
-		})
+	usage.ReadRequests += 1
+	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		Bucket: &s.url.Host,
+		Key:    key,
+	})
+	if s.opts.SimulateColdStore {
+		if err != nil {
+			if reqerr, ok := err.(awserr.RequestFailure); !ok || reqerr.StatusCode() != 404 {
+				return "", err
+			}
+		}
+	} else {
 		if err == nil {
 			upload.Complete()
 			span.AddField("s3.exists", true)

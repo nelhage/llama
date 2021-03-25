@@ -76,7 +76,7 @@ func (g *GlobalState) Store() (store.Store, error) {
 	}
 	var opts s3store.Options
 	if os.Getenv("LLAMA_SIMULATE_COLD_STORE") != "" {
-		opts.DisableHeadCheck = true
+		opts.SimulateColdStore = true
 	}
 	g.store, err = s3store.FromSessionAndOptions(sess, g.Config.Store, opts)
 	if err != nil {
