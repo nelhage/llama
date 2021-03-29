@@ -27,10 +27,15 @@ type Config struct {
 	Function        string
 	LocalPreprocess bool
 	BuildID         string
+
+	LocalCC  string
+	LocalCXX string
 }
 
 var DefaultConfig = Config{
 	Function: "gcc",
+	LocalCC:  "cc",
+	LocalCXX: "c++",
 }
 
 func ParseConfig(env []string) Config {
@@ -60,6 +65,10 @@ func ParseConfig(env []string) Config {
 			out.LocalPreprocess = val != ""
 		case "BUILD_ID":
 			out.BuildID = val
+		case "LOCAL_CC":
+			out.LocalCC = val
+		case "LOCAL_CXX":
+			out.LocalCXX = val
 		default:
 			log.Printf("llamacc: unknown env var: %s", ev)
 		}

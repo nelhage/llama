@@ -77,9 +77,9 @@ type Include struct {
 
 func (c *Compilation) Compiler() string {
 	if c.Language == "c++" {
-		return "g++"
+		return "c++"
 	}
-	return "gcc"
+	return "cc"
 }
 
 type Flags struct {

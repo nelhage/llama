@@ -278,9 +278,9 @@ func main() {
 		log.Printf("[llamacc] compiling locally: %s (%q)", err.Error(), os.Args)
 	}
 
-	cc := "gcc"
+	cc := cfg.LocalCC
 	if strings.HasSuffix(os.Args[0], "cxx") || strings.HasSuffix(os.Args[0], "c++") {
-		cc = "g++"
+		cc = cfg.LocalCXX
 	}
 
 	cmd := exec.Command(cc, os.Args[1:]...)
