@@ -16,11 +16,13 @@ package cli
 
 import (
 	"log"
+	"path"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/nelhage/llama/store"
+	"github.com/nelhage/llama/store/boltcache"
 	"github.com/nelhage/llama/store/s3store"
 )
 
@@ -80,8 +82,8 @@ func (g *GlobalState) Store() (store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	g.store = store.WriteCaching(st)
-	return g.store, nil
+	g.store, err = boltcache.NewWriteCache(st, path.Join(ConfigDir(), "remote-objects.db"))
+	return g.store, err
 }
 
 func (g *GlobalState) MustStore() store.Store {
