@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/klauspost/compress/zstd"
+	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/diskcache"
 	"github.com/nelhage/llama/store/internal/storeutil"
@@ -55,10 +56,10 @@ type Store struct {
 	disk *diskcache.Cache
 
 	metricsMu sync.Mutex
-	metrics   UsageMetrics
+	metrics   usageMetrics
 }
 
-type UsageMetrics struct {
+type usageMetrics struct {
 	ReadRequests  uint64
 	WriteRequests uint64
 	XferIn        uint64
@@ -82,21 +83,17 @@ func init() {
 	}
 }
 
-func (s *Store) Usage() UsageMetrics {
+func (s *Store) FetchAWSUsage(u *protocol.UsageMetrics) {
 	s.metricsMu.Lock()
 	defer s.metricsMu.Unlock()
-	return s.metrics
+	u.S3_Write_Requests += s.metrics.WriteRequests
+	u.S3_Read_Requests += s.metrics.ReadRequests
+	u.S3_Xfer_In += s.metrics.XferIn
+	u.S3_Xfer_Out += s.metrics.XferOut
+	s.metrics = usageMetrics{}
 }
 
-func (s *Store) ResetUsage() UsageMetrics {
-	s.metricsMu.Lock()
-	defer s.metricsMu.Unlock()
-	out := s.metrics
-	s.metrics = UsageMetrics{}
-	return out
-}
-
-func (s *Store) addUsage(add *UsageMetrics) {
+func (s *Store) addUsage(add *usageMetrics) {
 	s.metricsMu.Lock()
 	defer s.metricsMu.Unlock()
 	s.metrics.ReadRequests += add.ReadRequests
@@ -149,7 +146,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
-	var usage UsageMetrics
+	var usage usageMetrics
 	defer s.addUsage(&usage)
 
 	upload := s.seen.StartUpload(id)
@@ -192,7 +189,7 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 const getConcurrency = 32
 
-func (s *Store) getFromS3(ctx context.Context, id string, usage *UsageMetrics) ([]byte, error) {
+func (s *Store) getFromS3(ctx context.Context, id string, usage *usageMetrics) ([]byte, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.get_one")
 	defer span.End()
 
@@ -237,7 +234,7 @@ func (s *Store) decompress(id string, body []byte) (string, []byte, error) {
 	return expectHash, body, nil
 }
 
-func (s *Store) getOne(ctx context.Context, id string, usage *UsageMetrics) ([]byte, error) {
+func (s *Store) getOne(ctx context.Context, id string, usage *usageMetrics) ([]byte, error) {
 	var body []byte
 	if s.disk != nil {
 		body, _ = s.disk.Get(id)
@@ -272,7 +269,7 @@ func (s *Store) GetObjects(ctx context.Context, gets []store.GetRequest) {
 	grp, ctx := errgroup.WithContext(ctx)
 	jobs := make(chan int)
 
-	var usage UsageMetrics
+	var usage usageMetrics
 	defer s.addUsage(&usage)
 
 	grp.Go(func() error {
