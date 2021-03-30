@@ -67,3 +67,9 @@ func (c *Cache) StartUpload(id string) UploadHandle {
 	c.seen[id] = ent
 	return UploadHandle{ent: ent}
 }
+
+func (c *Cache) RemoveObject(id string) {
+	c.Lock()
+	defer c.Unlock()
+	delete(c.seen, id)
+}
