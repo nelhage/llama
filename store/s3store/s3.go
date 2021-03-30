@@ -43,9 +43,9 @@ import (
 var _ store.StorePrehashed = &Store{}
 
 type Options struct {
-	SimulateColdStore bool
-	DiskCachePath     string
-	DiskCacheBytes    uint64
+	DisableHeadCheck bool
+	DiskCachePath    string
+	DiskCacheBytes   uint64
 }
 
 type Store struct {
@@ -155,18 +155,12 @@ func (s *Store) StorePrehashed(ctx context.Context, obj []byte, id string) (stri
 	var usage usageMetrics
 	defer s.addUsage(&usage)
 
-	usage.ReadRequests += 1
-	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-		Bucket: &s.url.Host,
-		Key:    key,
-	})
-	if s.opts.SimulateColdStore {
-		if err != nil {
-			if reqerr, ok := err.(awserr.RequestFailure); !ok || reqerr.StatusCode() != 404 {
-				return "", err
-			}
-		}
-	} else {
+	if !s.opts.DisableHeadCheck {
+		usage.ReadRequests += 1
+		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+			Bucket: &s.url.Host,
+			Key:    key,
+		})
 		if err == nil {
 			span.AddField("s3.exists", true)
 			return id, nil
