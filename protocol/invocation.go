@@ -29,13 +29,14 @@ type InvocationSpec struct {
 }
 
 type InvocationResponse struct {
-	ExitStatus int          `json:"status"`
-	Stdout     *Blob        `json:"stdout,omitempty"`
-	Stderr     *Blob        `json:"stderr,omitempty"`
-	Outputs    FileList     `json:"outputs,omitempty"`
-	Spans      *Blob        `json:"spans,omitempty"`
-	Usage      UsageMetrics `json:"usage"`
-	Times      Timing       `json:"times"`
+	ExitStatus  int            `json:"status"`
+	Stdout      *Blob          `json:"stdout,omitempty"`
+	Stderr      *Blob          `json:"stderr,omitempty"`
+	Outputs     FileList       `json:"outputs,omitempty"`
+	InlineSpans []tracing.Span `json:"inlinespans,omitempty"`
+	Spans       *Blob          `json:"spans,omitempty"`
+	Usage       UsageMetrics   `json:"usage"`
+	Times       Timing         `json:"times"`
 }
 
 type UsageMetrics struct {

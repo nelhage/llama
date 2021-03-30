@@ -140,6 +140,8 @@ func computeCmdline(argv []string) []string {
 
 var jobs = 0
 
+const MaxInlineSpans = 100
+
 func runOne(ctx context.Context, store store.Store,
 	cmdline []string,
 	job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
@@ -183,22 +185,26 @@ func runOne(ctx context.Context, store store.Store,
 				return
 			}
 			spans := tracer.Close()
-			spandata, err := json.Marshal(spans)
-			if err == nil {
-				compressed := snappy.Encode(nil, spandata)
-				// We have to use topctx so we
-				// don't try to log spans to
-				// the tracer we just
-				// closed. This does mean we
-				// won't see this upload in
-				// tracing, but doing that
-				// would involve an entire
-				// additional layer of
-				// complexity...
-				resp.Spans, err = files.NewBlob(topctx, store, compressed)
-			}
-			if err != nil {
-				resp.Spans = &protocol.Blob{Err: err.Error()}
+			if len(spans) < MaxInlineSpans {
+				resp.InlineSpans = spans
+			} else {
+				spandata, err := json.Marshal(spans)
+				if err == nil {
+					compressed := snappy.Encode(nil, spandata)
+					// We have to use topctx so we
+					// don't try to log spans to
+					// the tracer we just
+					// closed. This does mean we
+					// won't see this upload in
+					// tracing, but doing that
+					// would involve an entire
+					// additional layer of
+					// complexity...
+					resp.Spans, err = files.NewBlob(topctx, store, compressed)
+				}
+				if err != nil {
+					resp.Spans = &protocol.Blob{Err: err.Error()}
+				}
 			}
 		}()
 	}

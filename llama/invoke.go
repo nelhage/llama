@@ -115,6 +115,9 @@ func Invoke(ctx context.Context, svc *lambda.Lambda,
 			}
 		}
 	}
+	if out.Response.InlineSpans != nil {
+		tracing.SubmitAll(ctx, out.Response.InlineSpans)
+	}
 
 	span.AddField("e2e_ms", out.Response.Times.E2E.Milliseconds())
 	span.AddField("fetch_ms", out.Response.Times.Fetch.Milliseconds())
