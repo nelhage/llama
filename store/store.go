@@ -35,6 +35,12 @@ type Store interface {
 	FetchAWSUsage(u *protocol.UsageMetrics)
 }
 
+type StorePrehashed interface {
+	Store
+	HashObject(obj []byte) string
+	StorePrehashed(ctx context.Context, obj []byte, hash string) (string, error)
+}
+
 func Get(ctx context.Context, st Store, id string) ([]byte, error) {
 	gets := []GetRequest{{Id: id}}
 	st.GetObjects(ctx, gets)

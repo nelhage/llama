@@ -40,6 +40,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var _ store.StorePrehashed = &Store{}
+
 type Options struct {
 	SimulateColdStore bool
 	DiskCachePath     string
@@ -132,16 +134,18 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	}, nil
 }
 
-func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
-	hash := storeutil.HashObject(obj)
-	return s.StoreHashed(ctx, obj, hash)
+func (s *Store) HashObject(obj []byte) string {
+	return storeutil.HashObject(obj) + ":zstd"
 }
 
-func (s *Store) StoreHashed(ctx context.Context, obj []byte, hash string) (string, error) {
+func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
+	hash := s.HashObject(obj)
+	return s.StorePrehashed(ctx, obj, hash)
+}
+
+func (s *Store) StorePrehashed(ctx context.Context, obj []byte, id string) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
-
-	id := hash + ":zstd"
 
 	span.AddField("object_id", id)
 

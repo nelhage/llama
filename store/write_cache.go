@@ -22,44 +22,47 @@ import (
 )
 
 type WriteCachingStore struct {
-	inner Store
+	inner StorePrehashed
 	seen  storeutil.Cache
 }
 
-func WriteCaching(inner Store) Store {
+func WriteCaching(inner StorePrehashed) StorePrehashed {
 	return &WriteCachingStore{
 		inner: inner,
 	}
 }
 
-type storeHasheder interface {
-	StoreHashed(ctx context.Context, obj []byte, hash string) (string, error)
+func (w *WriteCachingStore) Store(ctx context.Context, obj []byte) (string, error) {
+	hash := w.inner.HashObject(obj)
+	return w.inner.StorePrehashed(ctx, obj, hash)
 }
 
-func (w *WriteCachingStore) Store(ctx context.Context, obj []byte) (string, error) {
-	hash := storeutil.HashObject(obj)
+func (w *WriteCachingStore) StorePrehashed(ctx context.Context, obj []byte, hash string) (string, error) {
+	if w.seen.HasObject(hash) {
+		return hash, nil
+	}
 	u := w.seen.StartUpload(hash)
 	defer u.Rollback()
-	var got string
-	var err error
-	if sh, ok := w.inner.(storeHasheder); ok {
-		got, err = sh.StoreHashed(ctx, obj, hash)
-	} else {
-		got, err = w.inner.Store(ctx, obj)
-	}
+	got, err := w.inner.StorePrehashed(ctx, obj, hash)
+
 	if err == nil {
 		u.Complete()
 	}
 	return got, err
 }
 
+func (w *WriteCachingStore) HashObject(obj []byte) string {
+	return w.inner.HashObject(obj)
+}
+
 func (w *WriteCachingStore) GetObjects(ctx context.Context, gets []GetRequest) {
 	w.inner.GetObjects(ctx, gets)
 	for i := range gets {
-		if gets[i].Err == nil {
-			u := w.seen.StartUpload(gets[i].Id)
-			u.Complete()
+		if gets[i].Err != nil {
+			continue
 		}
+		u := w.seen.StartUpload(gets[i].Id)
+		u.Complete()
 	}
 }
 
