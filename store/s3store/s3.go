@@ -51,7 +51,6 @@ type Store struct {
 	s3      *s3.S3
 	url     *url.URL
 
-	seen storeutil.Cache
 	disk *diskcache.Cache
 
 	metricsMu sync.Mutex
@@ -137,23 +136,23 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 }
 
 func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
+	hash := storeutil.HashObject(obj)
+	return s.StoreHashed(ctx, obj, hash)
+}
+
+func (s *Store) StoreHashed(ctx context.Context, obj []byte, hash string) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
-	id := storeutil.HashObject(obj) + ":zstd"
+
+	id := hash + ":zstd"
 
 	span.AddField("object_id", id)
-	if s.seen.HasObject(id) {
-		return id, nil
-	}
 
 	key := aws.String(path.Join(s.url.Path, id))
 	var err error
 
 	var usage UsageMetrics
 	defer s.addUsage(&usage)
-
-	upload := s.seen.StartUpload(id)
-	defer upload.Rollback()
 
 	usage.ReadRequests += 1
 	_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
@@ -168,7 +167,6 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		}
 	} else {
 		if err == nil {
-			upload.Complete()
 			span.AddField("s3.exists", true)
 			return id, nil
 		}
@@ -192,7 +190,6 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		return "", err
 	}
 	s.metrics.XferIn += uint64(len(obj))
-	upload.Complete()
 	return id, nil
 }
 
@@ -265,9 +262,6 @@ func (s *Store) getOne(ctx context.Context, id string, usage *UsageMetrics) ([]b
 	if gotHash != hash {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotHash, id)
 	}
-	u := s.seen.StartUpload(id)
-	u.Complete()
-
 	return body, nil
 }
 

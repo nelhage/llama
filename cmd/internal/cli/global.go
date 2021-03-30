@@ -78,10 +78,11 @@ func (g *GlobalState) Store() (store.Store, error) {
 	if os.Getenv("LLAMA_SIMULATE_COLD_STORE") != "" {
 		opts.SimulateColdStore = true
 	}
-	g.store, err = s3store.FromSessionAndOptions(sess, g.Config.Store, opts)
+	st, err := s3store.FromSessionAndOptions(sess, g.Config.Store, opts)
 	if err != nil {
 		return nil, err
 	}
+	g.store = store.WriteCaching(st)
 	return g.store, nil
 }
 

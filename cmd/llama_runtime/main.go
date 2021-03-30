@@ -67,7 +67,7 @@ func initStore() (store.Store, error) {
 		return nil, err
 	}
 
-	return s3, nil
+	return store.WriteCaching(s3), nil
 }
 
 func main() {
