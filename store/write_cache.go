@@ -17,6 +17,7 @@ package store
 import (
 	"context"
 
+	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store/internal/storeutil"
 )
 
@@ -60,4 +61,8 @@ func (w *WriteCachingStore) GetObjects(ctx context.Context, gets []GetRequest) {
 			u.Complete()
 		}
 	}
+}
+
+func (w *WriteCachingStore) FetchAWSUsage(u *protocol.UsageMetrics) {
+	w.inner.FetchAWSUsage(u)
 }

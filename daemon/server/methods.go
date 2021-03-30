@@ -27,7 +27,6 @@ import (
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
-	"github.com/nelhage/llama/store/s3store"
 	"github.com/nelhage/llama/tracing"
 )
 
@@ -210,13 +209,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 }
 
 func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) error {
-	if s3, ok := d.store.(*s3store.Store); ok {
-		s3usage := s3.ResetUsage()
-		atomic.AddUint64(&d.stats.Usage.S3_Read_Requests, s3usage.ReadRequests)
-		atomic.AddUint64(&d.stats.Usage.S3_Write_Requests, s3usage.WriteRequests)
-		atomic.AddUint64(&d.stats.Usage.S3_Xfer_In, s3usage.XferIn)
-		atomic.AddUint64(&d.stats.Usage.S3_Xfer_Out, s3usage.XferOut)
-	}
+	d.store.FetchAWSUsage(&d.stats.Usage)
 
 	// TODO: We should really read this a field-at-a-time
 	// using `atomic.LoadUint64`, although I don't believe

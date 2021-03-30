@@ -153,15 +153,7 @@ func runOne(ctx context.Context, store store.Store,
 		if resp == nil {
 			return
 		}
-		if s3, ok := store.(*s3store.Store); ok {
-			s3usage := s3.ResetUsage()
-			resp.Usage.S3_Read_Requests = s3usage.ReadRequests
-			resp.Usage.S3_Write_Requests = s3usage.WriteRequests
-			resp.Usage.S3_Xfer_In = s3usage.XferIn
-			resp.Usage.S3_Xfer_Out = s3usage.XferOut
-		} else {
-			fmt.Fprintf(os.Stderr, "not an s3 store? %#v", store)
-		}
+		store.FetchAWSUsage(&resp.Usage)
 		mem, _ := strconv.ParseUint(os.Getenv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"), 10, 64)
 		resp.Usage.Lambda_Millis = uint64((time.Since(start) + 3*time.Millisecond/2 - 1).Milliseconds())
 		resp.Usage.Lambda_MB_Millis = resp.Usage.Lambda_Millis * mem

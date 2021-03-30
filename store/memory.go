@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/hex"
 
+	"github.com/nelhage/llama/protocol"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -42,6 +43,8 @@ func (s *inMemory) GetObjects(ctx context.Context, gets []GetRequest) {
 		}
 	}
 }
+
+func (s *inMemory) FetchAWSUsage(u *protocol.UsageMetrics) {}
 
 func InMemory() Store {
 	return &inMemory{
