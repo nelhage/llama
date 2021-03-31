@@ -43,6 +43,7 @@ type Runtime struct {
 	store    store.Store
 	cmdline  []string
 	jobCount int
+	workerId string
 }
 
 type ParsedJob struct {
@@ -72,6 +73,8 @@ func (r *Runtime) RunOne(ctx context.Context, job *protocol.InvocationSpec) (*pr
 	var resp *protocol.InvocationResponse
 	var err error
 
+	r.jobCount += 1
+
 	defer func() {
 		if resp == nil {
 			return
@@ -100,6 +103,8 @@ func (r *Runtime) RunOne(ctx context.Context, job *protocol.InvocationSpec) (*pr
 			job.Trace.TraceId,
 			job.Trace.ParentId,
 		)
+		span.AddField("job_count", r.jobCount)
+		span.AddField("worker_id", r.workerId)
 		defer func() {
 			span.End()
 			if resp == nil {
@@ -136,8 +141,6 @@ func (r *Runtime) RunOne(ctx context.Context, job *protocol.InvocationSpec) (*pr
 }
 
 func (r *Runtime) executeJob(ctx context.Context, job *protocol.InvocationSpec) (*protocol.InvocationResponse, error) {
-	r.jobCount += 1
-
 	t_start := time.Now()
 	parsed, err := r.parseJob(ctx, job)
 	if err != nil {

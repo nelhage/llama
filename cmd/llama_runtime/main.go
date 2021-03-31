@@ -19,6 +19,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,9 +86,15 @@ func main() {
 
 	cmdline := computeCmdline(os.Args[1:])
 
+	var workerId [8]byte
+	if _, err := rand.Reader.Read(workerId[:]); err != nil {
+		log.Fatalf("gen ID: %s", err.Error())
+	}
+
 	runtime := Runtime{
-		store:   store,
-		cmdline: cmdline,
+		store:    store,
+		cmdline:  cmdline,
+		workerId: hex.EncodeToString(workerId[:]),
 	}
 
 	lambda.StartWithContext(ctx, runtime.RunOne)
