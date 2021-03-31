@@ -93,7 +93,9 @@ func TestParseJob(t *testing.T) {
 		Outputs: []string{"outdir/c.txt"},
 	}
 
-	job, err := parseJob(ctx, st, cmdline, &spec)
+	r := Runtime{store: st, cmdline: cmdline}
+
+	job, err := r.parseJob(ctx, &spec)
 	if err != nil {
 		t.Fatal("parseJob", err)
 	}
@@ -135,7 +137,8 @@ func TestRunOne(t *testing.T) {
 		Outputs: []string{"b.txt", "c.txt"},
 	}
 
-	resp, err := runOne(ctx, st, cmdline, &spec)
+	r := Runtime{store: st, cmdline: cmdline}
+	resp, err := r.RunOne(ctx, &spec)
 	if err != nil {
 		t.Fatal("runOne", err)
 	}
@@ -161,7 +164,8 @@ func TestRunOne_NoCmdLine(t *testing.T) {
 		Outputs: nil,
 	}
 
-	resp, err := runOne(ctx, st, nil, &spec)
+	r := Runtime{store: st}
+	resp, err := r.RunOne(ctx, &spec)
 	if err != nil {
 		t.Fatal("runOne", err)
 	}
