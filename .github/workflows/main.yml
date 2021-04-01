@@ -35,7 +35,7 @@ jobs:
           docker build -t "ghcr.io/nelhage/llama:$GITHUB_SHA"
           docker push "ghcr.io/nelhage/llama:$GITHUB_SHA"
       - name: Tag "latest" docker container
-        if: github.event_name == "push" && github.ref == "refs/heads/main"
+        if: ${{github.event_name == "push" && github.ref == "refs/heads/main"}}
         run: |
           docker tag "ghcr.io/nelhage/llama:$GITHUB_SHA" "ghcr.io/nelhage/llama:latest
           docker push "ghcr.io/nelhage/llama:$GITHUB_SHA"
