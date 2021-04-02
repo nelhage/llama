@@ -219,7 +219,7 @@ func treeToCSV(w *csv.Writer, tree *TraceTree) {
 		}
 		words = append(words[:0],
 			t.span.TraceId, t.span.ParentId, t.span.SpanId,
-			path, t.span.Start.Format(time.RFC3339Nano),
+			path, fmt.Sprintf("%d.%09d", t.span.Start.UTC().Unix(), t.span.Start.Nanosecond()),
 			strconv.FormatInt(t.span.Duration.Nanoseconds(), 10),
 		)
 		fields := make(map[string]interface{}, len(global)+len(t.span.Fields))
