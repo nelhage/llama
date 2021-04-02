@@ -1,4 +1,4 @@
-FROM nelhage/llama as llama
+FROM ghcr.io/nelhage/llama as llama
 FROM ubuntu:focal
 RUN apt-get update && \
         apt-get -y install ca-certificates && \

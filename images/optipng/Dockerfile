@@ -1,12 +1,12 @@
 # We're going to get the llama runtime from a pre-built
-# container. nelhage/llama is built out of the `Dockerfile` in the
+# container. ghcr.io/nelhage/llama is built out of the `Dockerfile` in the
 # root of the llama repository.
 #
 # We could build our entire image on top of the llama image, but we
 # only need the `llama_runtime` binary, so we're going to copy that
 # binary out, which lets us build our image on an arbitrary base
 # image.
-FROM nelhage/llama as llama
+FROM ghcr.io/nelhage/llama as llama
 
 FROM debian:stable
 

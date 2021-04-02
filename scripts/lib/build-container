@@ -7,7 +7,7 @@ container="$1"
 path="${2-images/$container}"
 repository_tag="$llama_ecr_repository:$container"
 
-docker build -t nelhage/llama .
+docker build -t ghcr.io/nelhage/llama .
 docker build -t "$repository_tag" "$path"
 if ! docker push "$repository_tag"; then
     aws --region "$llama_region" ecr get-login-password | docker login --username AWS --password-stdin "$(dirname "$llama_ecr_repository")"
