@@ -23,6 +23,7 @@ import (
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
+	"github.com/nelhage/llama/cmd/llama/internal/function"
 	"github.com/nelhage/llama/cmd/llama/internal/trace"
 	"github.com/nelhage/llama/tracing"
 )
@@ -33,6 +34,7 @@ func main() {
 
 	subcommands.Register(&bootstrap.BootstrapCommand{}, "config")
 	subcommands.Register(&ConfigCommand{}, "config")
+	subcommands.Register(&function.UpdateFunctionCommand{}, "config")
 
 	subcommands.Register(&InvokeCommand{}, "")
 	subcommands.Register(&XargsCommand{}, "")
