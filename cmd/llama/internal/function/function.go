@@ -139,26 +139,29 @@ func (c *UpdateFunctionCommand) buildImage(ctx context.Context, global *cli.Glob
 
 func (c *UpdateFunctionCommand) pushTag(ctx context.Context, global *cli.GlobalState, tag string) error {
 	err := runSh("docker", "push", tag)
-	if err != nil {
-		log.Printf("Authenticating to AWS ECR...")
-		// Re-authenticate and try again
-		ecrSvc := ecr.New(global.MustSession())
-		resp, err := ecrSvc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
-		if err != nil {
-			return err
-		}
-		auth := resp.AuthorizationData[0]
-		decoded, err := base64.StdEncoding.DecodeString(*auth.AuthorizationToken)
-		if err != nil {
-			return err
-		}
-		colon := bytes.IndexByte(decoded, ':')
-		cmd := exec.Command("docker", "login", "--username", string(decoded[:colon]), "--password-stdin",
-			*auth.ProxyEndpoint)
-		cmd.Stdin = bytes.NewBuffer(decoded[colon+1:])
-		if err := runCmd(cmd); err != nil {
-			return err
-		}
+	if err == nil {
+		return nil
 	}
+
+	log.Printf("Authenticating to AWS ECR...")
+	// Re-authenticate and try again
+	ecrSvc := ecr.New(global.MustSession())
+	resp, err := ecrSvc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+	if err != nil {
+		return err
+	}
+	auth := resp.AuthorizationData[0]
+	decoded, err := base64.StdEncoding.DecodeString(*auth.AuthorizationToken)
+	if err != nil {
+		return err
+	}
+	colon := bytes.IndexByte(decoded, ':')
+	cmd := exec.Command("docker", "login", "--username", string(decoded[:colon]), "--password-stdin",
+		*auth.ProxyEndpoint)
+	cmd.Stdin = bytes.NewBuffer(decoded[colon+1:])
+	if err := runCmd(cmd); err != nil {
+		return err
+	}
+
 	return runSh("docker", "push", tag)
 }
