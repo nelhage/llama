@@ -31,10 +31,11 @@ import (
 )
 
 type UpdateFunctionCommand struct {
-	build   string
-	tag     string
-	memory  int64
-	timeout time.Duration
+	buildRuntime string
+	build        string
+	tag          string
+	memory       int64
+	timeout      time.Duration
 
 	create bool
 }
@@ -55,6 +56,7 @@ func (*UpdateFunctionCommand) Usage() string {
 }
 
 func (c *UpdateFunctionCommand) SetFlags(flags *flag.FlagSet) {
+	flags.StringVar(&c.buildRuntime, "build-runtime", "", "Build a copy of the llama runtime image from a checkout")
 	flags.StringVar(&c.build, "build", "", "Build a docker image out of the path for the function image")
 	flags.StringVar(&c.tag, "tag", "", "Use the specified tag for the function image")
 
@@ -116,6 +118,15 @@ func (c *UpdateFunctionCommand) buildImage(ctx context.Context, global *cli.Glob
 		}
 		return tag, nil
 	} else if c.build != "" {
+		if c.buildRuntime != "" {
+			log.Printf("Building the llama runtime from %s...", c.buildRuntime)
+			cmd := exec.Command("docker", "build", "-t", "ghcr.io/nelhage/llama", c.buildRuntime)
+			cmd.Stderr = os.Stderr
+			cmd.Stdout = os.Stdout
+			if err := runCmd(cmd); err != nil {
+				return "", err
+			}
+		}
 		log.Printf("Building image from %s...", c.build)
 		cmd := exec.Command("docker", "build", "-t", tag, c.build)
 		cmd.Stderr = os.Stderr
