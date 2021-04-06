@@ -142,12 +142,13 @@ actual compilation inside of a Lambda. You can think of this as a
 dedicated cluster of your own.
 
 To set it up, you'll need a Lambda function containing an appropriate
-llama-compatible GCC. You can build one using `images/gcc-9_3` in this
-repository, or copy the pattern there if you need a different GCC
-version. Build and upload it like so:
+llama-compatible GCC. You can build one using Ubuntu Focal's GCC
+package using `images/gcc-focal` in this repository contains , or copy
+the pattern there if you need a different GCC version or base
+OS. Build and upload it like so:
 
 ```
-$ llama update-function --create --build=images/gcc-9_3 gcc
+$ llama update-function --create --build=images/gcc-focal gcc
 ```
 
 And now you can use `llamacc` to compile code, just like `gcc`, except
