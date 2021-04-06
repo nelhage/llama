@@ -15,7 +15,9 @@
 package function
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -23,15 +25,17 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 )
 
 type UpdateFunctionCommand struct {
-	build   string
-	tag     string
-	memory  int64
-	timeout time.Duration
+	buildRuntime string
+	build        string
+	tag          string
+	memory       int64
+	timeout      time.Duration
 
 	create bool
 }
@@ -52,6 +56,7 @@ func (*UpdateFunctionCommand) Usage() string {
 }
 
 func (c *UpdateFunctionCommand) SetFlags(flags *flag.FlagSet) {
+	flags.StringVar(&c.buildRuntime, "build-runtime", "", "Build a copy of the llama runtime image from a checkout")
 	flags.StringVar(&c.build, "build", "", "Build a docker image out of the path for the function image")
 	flags.StringVar(&c.tag, "tag", "", "Use the specified tag for the function image")
 
@@ -77,6 +82,13 @@ func (c *UpdateFunctionCommand) Execute(ctx context.Context, flag *flag.FlagSet,
 	if err != nil {
 		log.Printf("Building image: %s", err.Error())
 		return subcommands.ExitFailure
+	}
+
+	if cfg.tag != "" {
+		if err := c.pushTag(ctx, global, cfg.tag); err != nil {
+			log.Printf("Pushing image tag: %s", err.Error())
+			return subcommands.ExitFailure
+		}
 	}
 
 	cfg.memory = c.memory
@@ -106,12 +118,47 @@ func (c *UpdateFunctionCommand) buildImage(ctx context.Context, global *cli.Glob
 		}
 		return tag, nil
 	} else if c.build != "" {
+		if c.buildRuntime != "" {
+			log.Printf("Building the llama runtime from %s...", c.buildRuntime)
+			cmd := exec.Command("docker", "build", "-t", "ghcr.io/nelhage/llama", c.buildRuntime)
+			cmd.Stderr = os.Stderr
+			cmd.Stdout = os.Stdout
+			if err := runCmd(cmd); err != nil {
+				return "", err
+			}
+		}
 		log.Printf("Building image from %s...", c.build)
 		cmd := exec.Command("docker", "build", "-t", tag, c.build)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
-		return tag, cmd.Run()
+		return tag, runCmd(cmd)
 	} else {
 		return "", nil
 	}
+}
+
+func (c *UpdateFunctionCommand) pushTag(ctx context.Context, global *cli.GlobalState, tag string) error {
+	err := runSh("docker", "push", tag)
+	if err != nil {
+		log.Printf("Authenticating to AWS ECR...")
+		// Re-authenticate and try again
+		ecrSvc := ecr.New(global.MustSession())
+		resp, err := ecrSvc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+		if err != nil {
+			return err
+		}
+		auth := resp.AuthorizationData[0]
+		decoded, err := base64.StdEncoding.DecodeString(*auth.AuthorizationToken)
+		if err != nil {
+			return err
+		}
+		colon := bytes.IndexByte(decoded, ':')
+		cmd := exec.Command("docker", "login", "--username", string(decoded[:colon]), "--password-stdin",
+			*auth.ProxyEndpoint)
+		cmd.Stdin = bytes.NewBuffer(decoded[colon+1:])
+		if err := runCmd(cmd); err != nil {
+			return err
+		}
+	}
+	return runSh("docker", "push", tag)
 }

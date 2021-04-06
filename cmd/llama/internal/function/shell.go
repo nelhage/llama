@@ -22,13 +22,19 @@ import (
 
 func runSh(args ...string) error {
 	cmd := exec.Command(args[0], args[1:]...)
+	return runCmd(cmd)
+}
+
+func runCmd(cmd *exec.Cmd) error {
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	if cmd.Stderr == nil {
+		cmd.Stderr = &stderr
+	}
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() == 0 {
-			return fmt.Errorf("Executing %v: %w", args, err)
+			return fmt.Errorf("Executing %v: %w", cmd.Args, err)
 		} else {
-			return fmt.Errorf("Executing %v: %w\nstderr:\n%s", args, err, stderr.String())
+			return fmt.Errorf("Executing %v: %w\nstderr:\n%s", cmd.Args, err, stderr.String())
 		}
 	}
 	return nil
