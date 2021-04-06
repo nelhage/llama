@@ -15,7 +15,9 @@
 package function
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -23,6 +25,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
 )
@@ -79,6 +82,13 @@ func (c *UpdateFunctionCommand) Execute(ctx context.Context, flag *flag.FlagSet,
 		return subcommands.ExitFailure
 	}
 
+	if cfg.tag != "" {
+		if err := c.pushTag(ctx, global, cfg.tag); err != nil {
+			log.Printf("Pushing image tag: %s", err.Error())
+			return subcommands.ExitFailure
+		}
+	}
+
 	cfg.memory = c.memory
 	cfg.timeout = c.timeout
 
@@ -110,8 +120,34 @@ func (c *UpdateFunctionCommand) buildImage(ctx context.Context, global *cli.Glob
 		cmd := exec.Command("docker", "build", "-t", tag, c.build)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
-		return tag, cmd.Run()
+		return tag, runCmd(cmd)
 	} else {
 		return "", nil
 	}
+}
+
+func (c *UpdateFunctionCommand) pushTag(ctx context.Context, global *cli.GlobalState, tag string) error {
+	err := runSh("docker", "push", tag)
+	if err != nil {
+		log.Printf("Authenticating to AWS ECR...")
+		// Re-authenticate and try again
+		ecrSvc := ecr.New(global.MustSession())
+		resp, err := ecrSvc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+		if err != nil {
+			return err
+		}
+		auth := resp.AuthorizationData[0]
+		decoded, err := base64.StdEncoding.DecodeString(*auth.AuthorizationToken)
+		if err != nil {
+			return err
+		}
+		colon := bytes.IndexByte(decoded, ':')
+		cmd := exec.Command("docker", "login", "--username", string(decoded[:colon]), "--password-stdin",
+			*auth.ProxyEndpoint)
+		cmd.Stdin = bytes.NewBuffer(decoded[colon+1:])
+		if err := runCmd(cmd); err != nil {
+			return err
+		}
+	}
+	return runSh("docker", "push", tag)
 }
