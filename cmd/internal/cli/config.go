@@ -41,7 +41,7 @@ func WriteConfig(cfg *Config, configPath string) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	os.MkdirAll(path.Dir(configPath), 070)
+	os.MkdirAll(path.Dir(configPath), 0700)
 	return ioutil.WriteFile(configPath, encoded, 0644)
 }
 
