@@ -142,17 +142,25 @@ actual compilation inside of a Lambda. You can think of this as a
 dedicated cluster of your own.
 
 To set it up, you'll need a Lambda function containing an appropriate
-llama-compatible GCC. You can build one using Ubuntu Focal's GCC
-package using `images/gcc-focal` in this repository contains , or copy
-the pattern there if you need a different GCC version or base
-OS. Build and upload it like so:
+llama-compatible GCC. If you are running Debian or Ubuntu, you can use
+`scripts/build-gcc-image` to automatically build a Debian image and
+Lambda function matching your local system:
+
+```console
+$ scripts/build-gcc-image
+```
+
+If you want more control or are running another OS, you can look at
+`images/gcc-focal` for an example Dockerfile to build a compiler
+package. You can build that or a similar image into a Lambda function
+using `llama update-function` like so:
 
 ```
 $ llama update-function --create --build=images/gcc-focal gcc
 ```
 
-And now you can use `llamacc` to compile code, just like `gcc`, except
-that the compilation happens in the cloud!
+Once you've done so, you can use `llamacc` to compile code, just like
+`gcc`, except that the compilation happens in the cloud!
 
 
 ```console
@@ -164,19 +172,20 @@ int main(void) {
   return 0;
 }
 $ export LLAMACC_VERBOSE=1; llamacc -c main.c -o main.o && llamacc main.o -o main
-2020/12/10 10:43:16 run cpp: ["gcc" "-E" "-o" "-" "main.c"]
-2020/12/10 10:43:16 run gcc: ["llama" "invoke" "-o" "main.o" "-stdin" "gcc" "gcc" "-c" "-x" "cpp-output" "-o" "main.o" "-"]
-2020/12/10 10:43:17 [llamacc] compiling locally: no supported input detected (["llamacc" "main.o" "-o" "main"])
+2021/04/06 17:46:57 run cpp -MM: ["cc" "-MM" "-MF" "-" "main.c"]
+2021/04/06 17:46:57 [llamacc] compiling remotely: daemon.InvokeWithFilesArgs{...}
+2021/04/06 17:46:58 [llamacc] compiling locally: no supported input detected (["llamacc" "main.o" "-o" "main"])
 ```
 
 We use `LLAMACC_VERBOSE` to make `llamacc` show what it's doing. We
-can see that it runs `cpp` locally to preprocess the given source, and
-then invokes `llama` to do the actual compilation in the
-cloud. Finally, it transpaerntly runs the link step locally.
+can see that it first runs `cc` locally to preprocess the given source
+and discover all the header files it depends on, and then invokes
+`llama` to do the actual compilation in the cloud. Finally, it
+transparently runs the link step locally.
 
-Because `llamacc` uses the classic `distcc` strategy of running the
-preprocessor locally it is somewhat limited in its scalability, but it
-can still get a significant speedup on large projects or on laptops
+Because `llamacc` still needs to run the preprocessor locally to
+discover dependencies, it is somewhat limited in its scalability, but
+it can still get a significant speedup on large projects or on laptops
 with slow CPUs with limited cores.
 
 You can also compile C++ by symlinking `llamac++` to `llamacc`.
@@ -193,7 +202,11 @@ system. The currently supported options include.
 |`LLAMACC_LOCAL`  | Run the compilation locally. Useful for e.g. `CC=llamacc ./configure` |
 |`LLAMACC_REMOTE_ASSEMBLE`| Assemble `.S` or `.s` files remotely, as well as C/C++. |
 |`LLAMACC_FUNCTION`| Override the name of the lambda function for the compiler|
+|`LLAMACC_LOCAL_CC`| Specifies the C compiler to delegate to locally, instead of using 'cc' |
+|`LLAMACC_LOCAL_CXX`| Specifies the C++ compiler to delegate to locally, instead of using 'c++' |
+|`LLAMACC_LOCAL_PREPROCESS`| Run the preprocessor locally and send preprocessed source text to the cloud, instead of individual headers. Uses less total compute but much more bandwidth; this can easily saturate your uplink on large builds. |
 |`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
+|`LLAMACC_BUILD_ID`| Assigns an ID to the build. Used for Llama's internal tracing support. |
 
 # Other notes
 
