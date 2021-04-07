@@ -1,0 +1,164 @@
+#!/bin/sh
+set -eu
+
+die() {
+    echo "$1" >&2
+    exit 1
+}
+
+tmpdir=
+cleanup() {
+    if [ "$tmpdir" ]; then
+        rm -rf "$tmpdir"
+    fi
+}
+trap cleanup exit
+
+main() {
+    local function_name=gcc
+    local local_headers=1
+    local extra_packages=
+    local gcc_package
+    local dry_run=
+    local yes=
+
+    local temp
+    temp=$(getopt -o yn --long yes,dry-run,gcc-package:,local-headers::,no-local-headers,extra-packages:: -n "$0" -- "$@")
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    eval set -- "$temp"
+    unset temp
+    while :; do
+        case "$1" in
+            --local-headers)
+                case "$2" in
+                    ''|'yes')
+                        local_headers=1
+                        ;;
+                    'no')
+                        local_headers=
+                        ;;
+                    *)
+                        die "Bad value for --local-headers: $2"
+                        ;;
+                esac
+                shift 2
+                ;;
+            --no-local-headers)
+                local_headers=
+                shift
+                ;;
+            --extra-packages)
+                extra_packages="$2"
+                shift 2
+                ;;
+            -n|--dry-run)
+                dry_run=1
+                shift
+                ;;
+            -y|--yes)
+                yes=1
+                shift
+                ;;
+            '--')
+                shift
+                break
+                ;;
+            *)
+                die "Internal error: $1"
+        esac
+    done
+
+    if [ "${1-}" ]; then
+        function_name=$1
+        shift
+    fi
+
+    if ! test -f /etc/os-release; then
+        die "No /etc/os-release found: Can't detect OS version."
+    fi
+    . /etc/os-release
+    local base_image
+    case "$ID" in
+        ubuntu)
+        ;;
+        debian)
+        ;;
+        *)
+            die "Unsupported OS: $ID"
+    esac
+    base_image="$ID:$VERSION_CODENAME"
+    local gcc="$(which gcc 2>/dev/null || :)"
+    if [ -z "$gcc" ]; then
+        die "gcc is not installed locally; I can't guess which version to use."
+    fi
+    local gcc_package="$(dpkg-query -S "$(readlink -f "$gcc")" | cut -f1 -d:)"
+    if [ -z "$gcc_package" ]; then
+        die "$gcc is not installed from apt; I can't guess which Debian package to use."
+    fi
+    local gxx_package=$(echo "$gcc_package" | sed s,gcc,g++,)
+    tmpdir=$(mktemp -d --tmpdir llamacc.XXXXXXXX)
+
+    mkdir -p "$tmpdir/build"
+    cat > "$tmpdir/build/Dockerfile" <<EOF
+FROM ghcr.io/nelhage/llama as llama
+FROM $base_image
+RUN apt-get update && apt-get -y install gcc $gcc_package $gxx_package ca-certificates $extra_packages && apt-get clean
+COPY --from=llama /llama_runtime /llama_runtime
+WORKDIR /
+ENTRYPOINT ["/llama_runtime"]
+EOF
+    if [ "$local_headers" ]; then
+        echo "Gathering locally-installed header files..."
+        local search_paths
+        search_paths=$(gcc -Wp,-v -xc /dev/null -o/dev/null -E 2>&1 | grep -Ee '^ ')
+        find $search_paths -type f -print | sort -u | tar -Pczf "$tmpdir/build/headers.tgz" --files-from=/dev/stdin
+        cat >> "$tmpdir/build/Dockerfile" <<EOF
+ADD headers.tgz /
+EOF
+    fi
+
+    echo "I am going to build a Docker image and a Lambda function. Details:"
+    echo "  Function name: $function_name"
+    echo "  Base image: $base_image"
+    echo "  GCC package: $gcc_package"
+    if [ "$extra_packages" ]; then
+        echo "  Extra packages: $extra_packages"
+    fi
+    if [ "$local_headers" ]; then
+        echo "  Package local header files: yes"
+    else
+        echo "  Package local header files: no"
+    fi
+
+    if [ "$dry_run" ]; then
+        echo "Executing dry-run Docker build:"
+        echo
+        docker build "$tmpdir/build"
+        exit
+    else
+        if [ ! "$yes" ]; then
+            while :; do
+                echo -n "Continue [Y/n]? "
+                local reply
+                read -r reply
+                case $reply in
+                    y|Y|'')
+                        break
+                        ;;
+                    n|N)
+                        echo "Exiting..."
+                        exit 1
+                        ;;
+                    *)
+                        ;;
+                esac
+            done
+        fi
+    fi
+
+    llama update-function --create --build="$tmpdir/build" "$function_name"
+}
+
+main "$@"
