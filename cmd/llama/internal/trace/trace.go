@@ -33,6 +33,7 @@ import (
 )
 
 type TraceCommand struct {
+	fixup       bool
 	maxTrees    int
 	depth       int
 	csv         string
@@ -49,6 +50,7 @@ func (*TraceCommand) Usage() string {
 }
 
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
+	flags.BoolVar(&c.fixup, "fixup", false, "Attempt to fix-up span timestamps to be internally consistent")
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
@@ -154,23 +156,21 @@ func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) 
 	tree.span.Start = tree.span.Start.Add(correction)
 	if tree.span.Start.Before(min) {
 		delta := min.Sub(tree.span.Start)
-		// log.Printf("span starts before parent id=%s parent=%s d=%s start=%s parent_start=%s",
-		//  tree.span.SpanId, tree.span.ParentId, delta, tree.span.Start, min)
+		log.Printf("span starts before parent id=%s parent=%s d=%s start=%s parent_start=%s",
+			tree.span.SpanId, tree.span.ParentId, delta, tree.span.Start, min)
 		correction += delta
 		tree.span.Start = min
 	}
 	end := tree.span.Start.Add(tree.span.Duration)
 	if max.Before(end) {
-		log.Printf("fixup end %s", tree.span.SpanId)
-		// log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
-		//  tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
+		log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
+			tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
 		delta := end.Sub(max)
 		if tree.span.Start.Add(-delta).After(min) {
 			correction -= delta
 			tree.span.Start = tree.span.Start.Add(-delta)
 			end = tree.span.Start.Add(tree.span.Duration)
 		} else {
-			log.Printf("child is longer than parent span=%s?", tree.span.SpanId)
 			tree.span.Duration = max.Sub(tree.span.Start)
 			end = max
 		}
@@ -291,14 +291,17 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		if c.trace != "" && span.TraceId != c.trace {
 			continue
 		}
+		for k, v := range extraFields {
+			span.Fields[k] = v
+		}
 		spans = append(spans, span)
 	}
-
 	trees := buildTrees(spans)
-	for _, t := range trees {
-		fixupSpans(t)
+	if c.fixup {
+		for _, t := range trees {
+			fixupSpans(t)
+		}
 	}
-
 	log.Printf("built %d trace trees", len(trees))
 	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
 	if c.maxTrees > 0 && len(trees) > c.maxTrees {
