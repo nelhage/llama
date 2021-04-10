@@ -37,6 +37,7 @@ type TraceCommand struct {
 	maxTrees    int
 	depth       int
 	csv         string
+	csvColumns  string
 	traceViewer string
 	trace       string
 	jaeger      string
@@ -53,11 +54,15 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.fixup, "fixup", false, "Attempt to fix-up span timestamps to be internally consistent")
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
+	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
+
+	flags.StringVar(&c.addFields, "add-fields", "", "Extra fields to add to traces, in comma-separated K=V format")
+
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
+	flags.StringVar(&c.csvColumns, "csv-columns", "", "Extra fields to explode into CSV columns")
+
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
-	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
-	flags.StringVar(&c.addFields, "add-fields", "", "Extra fields to add to traces, in comma-separated K=V format")
 }
 
 type TraceTree struct {
@@ -196,7 +201,7 @@ func stringify(v interface{}) string {
 	}
 }
 
-func treeToCSV(w *csv.Writer, tree *TraceTree) {
+func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
 	var words []string
 	var walk func(t *TraceTree, path string)
 
@@ -235,6 +240,10 @@ func treeToCSV(w *csv.Writer, tree *TraceTree) {
 			panic("json marshal")
 		}
 		words = append(words, string(out))
+		for _, col := range extra {
+			v := fields[col]
+			words = append(words, stringify(v))
+		}
 		w.Write(words)
 		for _, child := range t.children {
 			walk(child, path)
@@ -252,13 +261,19 @@ func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error 
 	w := csv.NewWriter(fh)
 	defer w.Flush()
 
-	headers := []string{
-		"trace", "parent", "span", "path", "start", "duration_ns", "fields",
+	var extraColumns []string
+	if c.csvColumns != "" {
+		extraColumns = strings.Split(c.csvColumns, ",")
 	}
+
+	headers := append(
+		[]string{
+			"trace", "parent", "span", "path", "start", "duration_ns", "fields",
+		}, extraColumns...)
 	w.Write(headers)
 
 	for _, tree := range trees {
-		treeToCSV(w, tree)
+		treeToCSV(w, tree, extraColumns)
 	}
 
 	return nil
