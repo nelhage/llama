@@ -33,12 +33,15 @@ import (
 )
 
 type TraceCommand struct {
+	fixup       bool
 	maxTrees    int
 	depth       int
 	csv         string
+	csvColumns  string
 	traceViewer string
 	trace       string
 	jaeger      string
+	addFields   string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -47,14 +50,19 @@ func (*TraceCommand) Usage() string {
 	return `trace OPTIONS file.trace
 `
 }
-
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
+	flags.BoolVar(&c.fixup, "fixup", false, "Attempt to fix-up span timestamps to be internally consistent")
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
+	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
+
+	flags.StringVar(&c.addFields, "add-fields", "", "Extra fields to add to traces, in comma-separated K=V format")
+
 	flags.StringVar(&c.csv, "csv", "", "Write annotated spans to CSV")
+	flags.StringVar(&c.csvColumns, "csv-columns", "", "Extra fields to explode into CSV columns")
+
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
-	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
 }
 
 type TraceTree struct {
@@ -154,23 +162,21 @@ func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) 
 	tree.span.Start = tree.span.Start.Add(correction)
 	if tree.span.Start.Before(min) {
 		delta := min.Sub(tree.span.Start)
-		// log.Printf("span starts before parent id=%s parent=%s d=%s start=%s parent_start=%s",
-		//  tree.span.SpanId, tree.span.ParentId, delta, tree.span.Start, min)
+		log.Printf("span starts before parent id=%s parent=%s d=%s start=%s parent_start=%s",
+			tree.span.SpanId, tree.span.ParentId, delta, tree.span.Start, min)
 		correction += delta
 		tree.span.Start = min
 	}
 	end := tree.span.Start.Add(tree.span.Duration)
 	if max.Before(end) {
-		log.Printf("fixup end %s", tree.span.SpanId)
-		// log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
-		//  tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
+		log.Printf("span ends after parent id=%s parent=%s d=%s end=%s parent_end=%s",
+			tree.span.SpanId, tree.span.ParentId, end.Sub(max), end, max)
 		delta := end.Sub(max)
 		if tree.span.Start.Add(-delta).After(min) {
 			correction -= delta
 			tree.span.Start = tree.span.Start.Add(-delta)
 			end = tree.span.Start.Add(tree.span.Duration)
 		} else {
-			log.Printf("child is longer than parent span=%s?", tree.span.SpanId)
 			tree.span.Duration = max.Sub(tree.span.Start)
 			end = max
 		}
@@ -195,7 +201,7 @@ func stringify(v interface{}) string {
 	}
 }
 
-func treeToCSV(w *csv.Writer, tree *TraceTree) {
+func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
 	var words []string
 	var walk func(t *TraceTree, path string)
 
@@ -234,6 +240,10 @@ func treeToCSV(w *csv.Writer, tree *TraceTree) {
 			panic("json marshal")
 		}
 		words = append(words, string(out))
+		for _, col := range extra {
+			v := fields[col]
+			words = append(words, stringify(v))
+		}
 		w.Write(words)
 		for _, child := range t.children {
 			walk(child, path)
@@ -251,13 +261,19 @@ func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error 
 	w := csv.NewWriter(fh)
 	defer w.Flush()
 
-	headers := []string{
-		"trace", "parent", "span", "path", "start", "duration_ns", "fields",
+	var extraColumns []string
+	if c.csvColumns != "" {
+		extraColumns = strings.Split(c.csvColumns, ",")
 	}
+
+	headers := append(
+		[]string{
+			"trace", "parent", "span", "path", "start", "duration_ns", "fields",
+		}, extraColumns...)
 	w.Write(headers)
 
 	for _, tree := range trees {
-		treeToCSV(w, tree)
+		treeToCSV(w, tree, extraColumns)
 	}
 
 	return nil
@@ -271,6 +287,18 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	fh, err := os.Open(fname)
 	if err != nil {
 		log.Fatalf("open(%q): %s", fname, err)
+	}
+	var extraFields map[string]string
+	if c.addFields != "" {
+		extraFields = make(map[string]string)
+		for _, kv := range strings.Split(c.addFields, ",") {
+			eq := strings.IndexRune(kv, '=')
+			if eq < 0 {
+				log.Printf("-add-fields: bad value %q", kv)
+				return subcommands.ExitUsageError
+			}
+			extraFields[kv[:eq]] = kv[eq+1:]
+		}
 	}
 	defer fh.Close()
 	decoder := json.NewDecoder(fh)
@@ -291,14 +319,22 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		if c.trace != "" && span.TraceId != c.trace {
 			continue
 		}
+		if extraFields != nil {
+			if span.Fields == nil {
+				span.Fields = make(map[string]interface{})
+			}
+			for k, v := range extraFields {
+				span.Fields[k] = v
+			}
+		}
 		spans = append(spans, span)
 	}
-
 	trees := buildTrees(spans)
-	for _, t := range trees {
-		fixupSpans(t)
+	if c.fixup {
+		for _, t := range trees {
+			fixupSpans(t)
+		}
 	}
-
 	log.Printf("built %d trace trees", len(trees))
 	sort.Slice(trees, func(i, j int) bool { return trees[i].span.Start.Before(trees[j].span.Start) })
 	if c.maxTrees > 0 && len(trees) > c.maxTrees {
