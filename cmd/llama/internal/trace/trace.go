@@ -40,6 +40,7 @@ type TraceCommand struct {
 	traceViewer string
 	trace       string
 	jaeger      string
+	addFields   string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -48,7 +49,6 @@ func (*TraceCommand) Usage() string {
 	return `trace OPTIONS file.trace
 `
 }
-
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.fixup, "fixup", false, "Attempt to fix-up span timestamps to be internally consistent")
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
@@ -57,6 +57,7 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
 	flags.StringVar(&c.trace, "trace", "", "Only examine specified trace")
+	flags.StringVar(&c.addFields, "add-fields", "", "Extra fields to add to traces, in comma-separated K=V format")
 }
 
 type TraceTree struct {
@@ -272,6 +273,18 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	if err != nil {
 		log.Fatalf("open(%q): %s", fname, err)
 	}
+	var extraFields map[string]string
+	if c.addFields != "" {
+		extraFields = make(map[string]string)
+		for _, kv := range strings.Split(c.addFields, ",") {
+			eq := strings.IndexRune(kv, '=')
+			if eq < 0 {
+				log.Printf("-add-fields: bad value %q", kv)
+				return subcommands.ExitUsageError
+			}
+			extraFields[kv[:eq]] = kv[eq+1:]
+		}
+	}
 	defer fh.Close()
 	decoder := json.NewDecoder(fh)
 	var spans []tracing.Span
@@ -291,8 +304,13 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		if c.trace != "" && span.TraceId != c.trace {
 			continue
 		}
-		for k, v := range extraFields {
-			span.Fields[k] = v
+		if extraFields != nil {
+			if span.Fields == nil {
+				span.Fields = make(map[string]interface{})
+			}
+			for k, v := range extraFields {
+				span.Fields[k] = v
+			}
 		}
 		spans = append(spans, span)
 	}
