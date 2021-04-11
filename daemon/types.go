@@ -82,3 +82,17 @@ type TraceSpansArgs struct {
 }
 
 type TraceSpansReply struct{}
+
+type RunCPPArgs struct {
+	Trace *tracing.Propagation
+	Dir   string
+	Cmd   string
+	Args  []string
+}
+
+type RunCPPReply struct {
+	Deps []string
+
+	Status int
+	Stderr []byte
+}

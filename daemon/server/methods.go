@@ -15,9 +15,11 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"sync/atomic"
 	"time"
@@ -232,4 +234,86 @@ func (d *Daemon) TraceSpans(in *daemon.TraceSpansArgs, out *daemon.TraceSpansRep
 	tracing.SubmitAll(d.ctx, in.Spans)
 	*out = daemon.TraceSpansReply{}
 	return nil
+}
+
+func (d *Daemon) RunCPP(in *daemon.RunCPPArgs, out *daemon.RunCPPReply) error {
+	d.cppSem <- struct{}{}
+	defer func() { <-d.cppSem }()
+
+	_, span := tracing.StartPropagatedSpan(d.ctx, "run_cpp", in.Trace)
+	defer span.End()
+
+	var cpp exec.Cmd
+	ccpath, err := exec.LookPath(in.Cmd)
+	if err != nil {
+		return err
+	}
+	cpp.Path = ccpath
+	cpp.Args = append(cpp.Args, in.Cmd)
+	cpp.Args = append(cpp.Args, in.Args...)
+	cpp.Dir = in.Dir
+
+	var deps, stderr bytes.Buffer
+	cpp.Stdout = &deps
+	cpp.Stderr = &stderr
+
+	span.AddField("argc", len(cpp.Args))
+	if err := cpp.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			*out = daemon.RunCPPReply{
+				Status: ee.ExitCode(),
+				Stderr: stderr.Bytes(),
+			}
+			return nil
+		}
+	}
+	deplist, err := parseMakeDeps(deps.Bytes())
+	span.AddField("count", len(deplist))
+	if err != nil {
+		return err
+	}
+	*out = daemon.RunCPPReply{
+		Deps: deplist,
+	}
+	return nil
+}
+
+func parseMakeDeps(buf []byte) ([]string, error) {
+	var deps []string
+	i := 0
+	// Skip the target
+	for i < len(buf) && buf[i] != ':' {
+		i++
+	}
+	i++
+
+	var dep []byte
+	for i < len(buf) {
+		if buf[i] == ' ' || buf[i] == '\n' {
+			if len(dep) > 0 {
+				deps = append(deps, string(dep))
+			}
+			dep = dep[:0]
+			i++
+			continue
+		}
+		if buf[i] == '\\' && i+1 < len(buf) {
+			if buf[i+1] == '\n' {
+				i++
+				continue
+			}
+			if buf[i+1] == ' ' || buf[i+1] == '\\' {
+				dep = append(dep, buf[i+1])
+				i += 2
+				continue
+			}
+		}
+		dep = append(dep, buf[i])
+		i++
+	}
+	if len(dep) > 0 {
+		deps = append(deps, string(dep))
+	}
+
+	return deps, nil
 }

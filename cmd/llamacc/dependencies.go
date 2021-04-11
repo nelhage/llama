@@ -15,87 +15,50 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"os"
-	"os/exec"
 
+	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/tracing"
 )
 
-func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
+func detectDependencies(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) ([]string, error) {
 	_, span := tracing.StartSpan(ctx, "detect_dependencies")
 	defer span.End()
 
-	var preprocessor exec.Cmd
-	ccpath, err := exec.LookPath(comp.Compiler())
+	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	preprocessor.Path = ccpath
-	preprocessor.Args = []string{comp.Compiler()}
-	preprocessor.Args = append(preprocessor.Args, comp.UnknownArgs...)
+
+	cpp := &daemon.RunCPPArgs{
+		Trace: span.Propagation(),
+		Dir:   cwd,
+		Cmd:   comp.Compiler(),
+	}
+
+	cpp.Args = append(cpp.Args, comp.UnknownArgs...)
 	for _, opt := range comp.Defs {
-		preprocessor.Args = append(preprocessor.Args, opt.Opt)
-		preprocessor.Args = append(preprocessor.Args, opt.Def)
+		cpp.Args = append(cpp.Args, opt.Opt)
+		cpp.Args = append(cpp.Args, opt.Def)
 	}
 	for _, opt := range comp.Includes {
-		preprocessor.Args = append(preprocessor.Args, opt.Opt)
-		preprocessor.Args = append(preprocessor.Args, opt.Path)
+		cpp.Args = append(cpp.Args, opt.Opt)
+		cpp.Args = append(cpp.Args, opt.Path)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-MM", "-MF", "-", comp.Input)
-	var deps bytes.Buffer
-	preprocessor.Stdout = &deps
-	preprocessor.Stderr = os.Stderr
+	cpp.Args = append(cpp.Args, "-MM", "-MF", "-", comp.Input)
 	if cfg.Verbose {
-		log.Printf("run cpp -MM: %q", preprocessor.Args)
+		log.Printf("run cpp -MM: %q", cpp.Args)
 	}
-	span.AddField("argc", len(preprocessor.Args))
-	if err := preprocessor.Run(); err != nil {
+	out, err := client.RunCPP(cpp)
+	if err != nil {
 		return nil, err
 	}
-	deplist, err := parseMakeDeps(deps.Bytes())
-	span.AddField("count", len(deplist))
-	return deplist, err
-}
-
-func parseMakeDeps(buf []byte) ([]string, error) {
-	var deps []string
-	i := 0
-	// Skip the target
-	for i < len(buf) && buf[i] != ':' {
-		i++
+	if out.Status != 0 {
+		os.Stderr.Write(out.Stderr)
+		return nil, fmt.Errorf("cpp exited with code %d", out.Status)
 	}
-	i++
-
-	var dep []byte
-	for i < len(buf) {
-		if buf[i] == ' ' || buf[i] == '\n' {
-			if len(dep) > 0 {
-				deps = append(deps, string(dep))
-			}
-			dep = dep[:0]
-			i++
-			continue
-		}
-		if buf[i] == '\\' && i+1 < len(buf) {
-			if buf[i+1] == '\n' {
-				i++
-				continue
-			}
-			if buf[i+1] == ' ' || buf[i+1] == '\\' {
-				dep = append(dep, buf[i+1])
-				i += 2
-				continue
-			}
-		}
-		dep = append(dep, buf[i])
-		i++
-	}
-	if len(dep) > 0 {
-		deps = append(deps, string(dep))
-	}
-
-	return deps, nil
+	return out.Deps, nil
 }

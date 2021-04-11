@@ -53,3 +53,9 @@ func (c *Client) TraceSpans(in *TraceSpansArgs) (*TraceSpansReply, error) {
 	err := c.conn.Call("Daemon.TraceSpans", in, &out)
 	return &out, err
 }
+
+func (c *Client) RunCPP(in *RunCPPArgs) (*RunCPPReply, error) {
+	var out RunCPPReply
+	err := c.conn.Call("Daemon.RunCPP", in, &out)
+	return &out, err
+}

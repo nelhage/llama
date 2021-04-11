@@ -43,6 +43,8 @@ type Daemon struct {
 	lambda   *lambda.Lambda
 
 	stats daemon.Stats
+
+	cppSem chan (struct{})
 }
 
 var ErrAlreadyRunning = errors.New("daemon already running")
@@ -53,6 +55,9 @@ type StartArgs struct {
 	Session     *session.Session
 	IdleTimeout time.Duration
 }
+
+// TODO: ncpu
+const concurrentCppLimit = 8
 
 func Start(ctx context.Context, args *StartArgs) error {
 	if err := os.MkdirAll(path.Dir(args.Path), 0700); err != nil {
@@ -87,6 +92,7 @@ func Start(ctx context.Context, args *StartArgs) error {
 		store:    args.Store,
 		session:  args.Session,
 		lambda:   lambda.New(args.Session),
+		cppSem:   make(chan struct{}, concurrentCppLimit),
 	}
 
 	extend := make(chan struct{})
