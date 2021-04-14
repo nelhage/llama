@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/store"
+	"golang.org/x/sync/semaphore"
 )
 
 type Daemon struct {
@@ -43,16 +45,23 @@ type Daemon struct {
 	lambda   *lambda.Lambda
 
 	stats daemon.Stats
+
+	llamaccSem *semaphore.Weighted
 }
 
 var ErrAlreadyRunning = errors.New("daemon already running")
 
 type StartArgs struct {
-	Path        string
-	Store       store.Store
-	Session     *session.Session
-	IdleTimeout time.Duration
+	Path               string
+	Store              store.Store
+	Session            *session.Session
+	IdleTimeout        time.Duration
+	LlamaCCConcurrency int64
 }
+
+const (
+	LlamaCCPath = "/llamacc"
+)
 
 func Start(ctx context.Context, args *StartArgs) error {
 	if err := os.MkdirAll(path.Dir(args.Path), 0700); err != nil {
@@ -81,12 +90,19 @@ func Start(ctx context.Context, args *StartArgs) error {
 	srvCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	concurrency := args.LlamaCCConcurrency
+	if concurrency == 0 {
+		concurrency = 2 * int64(runtime.NumCPU())
+	}
+
 	daemon := Daemon{
 		ctx:      srvCtx,
 		shutdown: cancel,
 		store:    args.Store,
 		session:  args.Session,
 		lambda:   lambda.New(args.Session),
+
+		llamaccSem: semaphore.NewWeighted(concurrency),
 	}
 
 	extend := make(chan struct{})
@@ -99,6 +115,10 @@ func Start(ctx context.Context, args *StartArgs) error {
 	var rpcSrv rpc.Server
 	rpcSrv.Register(&daemon)
 	httpSrv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == LlamaCCPath {
+			daemon.acquireSem(srvCtx)
+			defer daemon.releaseSem()
+		}
 		extend <- struct{}{}
 		rpcSrv.ServeHTTP(w, r)
 	})
@@ -111,12 +131,12 @@ func Start(ctx context.Context, args *StartArgs) error {
 	return nil
 }
 
-func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error) {
-	cl, err := daemon.Dial(ctx, path)
+func DialWithAutostart(ctx context.Context, sockPath string, urlPath string) (*daemon.Client, error) {
+	cl, err := daemon.DialPath(ctx, sockPath, urlPath)
 	if err == nil {
 		return cl, nil
 	}
-	cmd := exec.Command("llama", "daemon", "-autostart", "-path", path)
+	cmd := exec.Command("llama", "daemon", "-autostart", "-path", sockPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}
@@ -133,7 +153,7 @@ func DialWithAutostart(ctx context.Context, path string) (*daemon.Client, error)
 	}()
 	go func() {
 		for {
-			cl, err := daemon.Dial(ctx, path)
+			cl, err := daemon.DialPath(ctx, sockPath, urlPath)
 			if err == nil {
 				connected <- cl
 				return
@@ -191,4 +211,12 @@ loop:
 	if timer != nil {
 		timer.Stop()
 	}
+}
+
+func (d *Daemon) acquireSem(ctx context.Context) {
+	d.llamaccSem.Acquire(ctx, 1)
+}
+
+func (d *Daemon) releaseSem() {
+	d.llamaccSem.Release(1)
 }

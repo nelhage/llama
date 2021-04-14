@@ -56,7 +56,7 @@ func TestDialWithAutostart(t *testing.T) {
 			defer func() {
 				ch <- r
 			}()
-			cl, err := server.DialWithAutostart(ctx, sock)
+			cl, err := server.DialWithAutostart(ctx, sock, "/")
 			if err != nil {
 				r.err = err
 				return

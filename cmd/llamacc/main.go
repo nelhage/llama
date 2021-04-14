@@ -37,18 +37,19 @@ import (
 func runLlamaCC(cfg *Config, comp *Compilation) error {
 	var err error
 	ctx := context.Background()
-	client, err := server.DialWithAutostart(ctx, cli.SocketPath())
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
 	mt := tracing.NewMemoryTracer(ctx)
 	ctx = tracing.WithTracer(ctx, mt)
 	ctx, span := tracing.StartSpan(ctx, "llamacc")
 	if cfg.BuildID != "" {
 		span.AddField("global.build_id", cfg.BuildID)
 	}
+
+	client, err := server.DialWithAutostart(ctx, cli.SocketPath(), server.LlamaCCPath)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
 	defer func() {
 		span.End()
 		client.TraceSpans(&daemon.TraceSpansArgs{Spans: mt.Close()})
@@ -82,7 +83,7 @@ func remap(local, wd string) files.Mapped {
 }
 
 func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
-	args, err := buildRemoteInvoke(ctx, cfg, comp)
+	args, err := constructRemotePreprocessInvoke(ctx, cfg, comp)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func rewriteMF(ctx context.Context, comp *Compilation) error {
 	return os.Remove(tmpMF)
 }
 
-func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
+func constructRemotePreprocessInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -132,7 +133,8 @@ func buildRemoteInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*da
 	}
 
 	args := daemon.InvokeWithFilesArgs{
-		Function: cfg.Function,
+		Function:      cfg.Function,
+		DropSemaphore: true,
 	}
 
 	args.Outputs = args.Outputs.Append(remap(comp.Output, wd))

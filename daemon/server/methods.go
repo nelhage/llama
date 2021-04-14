@@ -49,6 +49,11 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	defer sb.End()
 	sb.AddField("function", in.Function)
 
+	if in.DropSemaphore {
+		d.releaseSem()
+		defer d.acquireSem(ctx)
+	}
+
 	atomic.AddUint64(&d.stats.Invocations, 1)
 	inflight := atomic.AddUint64(&d.stats.InFlight, 1)
 	sb.AddField("inflight", float64(inflight))

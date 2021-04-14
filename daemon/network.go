@@ -19,8 +19,16 @@ import (
 	"net/rpc"
 )
 
-func Dial(_ context.Context, path string) (*Client, error) {
-	conn, err := rpc.DialHTTP("unix", path)
+func Dial(_ context.Context, sockPath string) (*Client, error) {
+	conn, err := rpc.DialHTTP("unix", sockPath)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{conn}, nil
+}
+
+func DialPath(_ context.Context, sockPath string, urlPath string) (*Client, error) {
+	conn, err := rpc.DialHTTPPath("unix", sockPath, urlPath)
 	if err != nil {
 		return nil, err
 	}
