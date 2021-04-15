@@ -16,7 +16,6 @@ package trace
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,7 +23,6 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +40,8 @@ type TraceCommand struct {
 	trace       string
 	jaeger      string
 	addFields   string
+
+	parquet string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -63,6 +63,8 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
+
+	flags.StringVar(&c.parquet, "parquet", "", "Write spans as a parquet file")
 }
 
 type TraceTree struct {
@@ -186,99 +188,6 @@ func fixupBounds(tree *TraceTree, min, max time.Time, correction time.Duration) 
 	}
 }
 
-func stringify(v interface{}) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
-	case int64:
-		return strconv.FormatInt(t, 10)
-	case nil:
-		return ""
-	default:
-		return fmt.Sprintf("%v", t)
-	}
-}
-
-func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
-	var words []string
-	var walk func(t *TraceTree, path string)
-
-	global := make(map[string]interface{})
-	tree.EachSpan(func(span *tracing.Span) error {
-		if span.Fields != nil {
-			for k, v := range span.Fields {
-				if strings.HasPrefix(k, "global.") {
-					global[k] = v
-				}
-			}
-		}
-		return nil
-	})
-
-	walk = func(t *TraceTree, path string) {
-		if path == "" {
-			path = t.span.Name
-		} else {
-			path = fmt.Sprintf("%s>%s", path, t.span.Name)
-		}
-		words = append(words[:0],
-			t.span.TraceId, t.span.ParentId, t.span.SpanId,
-			path, fmt.Sprintf("%d.%09d", t.span.Start.UTC().Unix(), t.span.Start.Nanosecond()),
-			strconv.FormatInt(t.span.Duration.Nanoseconds(), 10),
-		)
-		fields := make(map[string]interface{}, len(global)+len(t.span.Fields))
-		for k, v := range global {
-			fields[k] = v
-		}
-		for k, v := range t.span.Fields {
-			fields[k] = v
-		}
-		out, err := json.Marshal(fields)
-		if err != nil {
-			panic("json marshal")
-		}
-		words = append(words, string(out))
-		for _, col := range extra {
-			v := fields[col]
-			words = append(words, stringify(v))
-		}
-		w.Write(words)
-		for _, child := range t.children {
-			walk(child, path)
-		}
-	}
-	walk(tree, "")
-}
-
-func (c *TraceCommand) WriteCSV(spans []tracing.Span, trees []*TraceTree) error {
-	fh, err := os.Create(c.csv)
-	if err != nil {
-		return err
-	}
-	defer fh.Close()
-	w := csv.NewWriter(fh)
-	defer w.Flush()
-
-	var extraColumns []string
-	if c.csvColumns != "" {
-		extraColumns = strings.Split(c.csvColumns, ",")
-	}
-
-	headers := append(
-		[]string{
-			"trace", "parent", "span", "path", "start", "duration_ns", "fields",
-		}, extraColumns...)
-	w.Write(headers)
-
-	for _, tree := range trees {
-		treeToCSV(w, tree, extraColumns)
-	}
-
-	return nil
-}
-
 func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.depth == 0 {
 		c.depth = 1 << 24
@@ -359,6 +268,13 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		err := writeJaeger(trees, c.jaeger)
 		if err != nil {
 			log.Fatalf("write jaeger: %s", err.Error())
+		}
+	}
+
+	if c.parquet != "" {
+		err := c.WriteParquet(spans, trees)
+		if err != nil {
+			log.Fatalf("write parquet: %s", err.Error())
 		}
 	}
 
