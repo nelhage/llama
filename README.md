@@ -4,13 +4,174 @@ Llama is a tool for running UNIX commands inside of Amazon Lambda. Its
 goal is to make it easy to outsource compute-heavy tasks to Lambda,
 with its enormous available parallelism, from your shell.
 
-Lambda is neither the cheapest nor the fastest compute available, but
-it has the advantage of supporting nearly-arbitrary parallelism with
-no need for provisioned capacity and minimum configuration, making it
-very suitable for infrequent burst compute when interactive latency is
-desirable.
+Most notably, llama includes `llamacc`, a drop-in replacement for
+`gcc` or `clang` which executes the compilation in the cloud, allowing
+for considerable speedups building large C or C++ software projects.
 
-## An example
+Lambda offers nearly-arbitrary parallelism and burst capacity for
+compute, making it, in principle, well-suited as a backend for
+interactive tasks that briefly require large amounts of compute. This
+idea has been explored in the [ExCamera][excamera] and [gg][gg]
+papers, but is not widely accessible at present.
+
+[excamera]: https://www.usenix.org/conference/nsdi17/technical-sessions/presentation/fouladi
+
+## Performance numbers
+
+Here are a few performance results from my testing demonstrating the
+current speedups achievable from `llamacc`:
+
+|project|hardware|local build|local time|llamacc build|llamacc time|Approx llamacc cost|
+|-------|--------|-----------|----------|-------------|------------|-------------------|
+|Linux v5.10 defconfig|Desktop (24-thread Ryzen 9 3900)|`make -j30`|1:06|`make -j100`|0:42|$0.15|
+|Linux v5.10 defconfig|Simulated laptop (limited to 4 threads)|`make -j8`|4:56|`make -j100`|1:26|$0.15|
+|clang+LLVM|Desktop (24-thread Ryzen 9 3900)|`ninja -j30`|9:21|`ninja -j200`|2:00|$0.67|
+
+As you can see, Llama is capable of speedups for large builds even on
+my large, powerful desktop system, and the advantage is more
+pronounced on smaller workstations.
+
+# Getting started
+
+## Dependencies
+
+- A Linux x86_64 machine. Llama only supports that platform for
+  now. Cross-compilation should in theory be possible but is not
+  implemented.
+- The [Go compiler](https://golang.org/dl/). Llama is tested on v1.16 but older versions may work.
+- An [AWS account](https://aws.amazon.com/)
+
+### Install llama
+
+You'll need to install Llama from source. You can run
+
+```
+go install github.com/nelhage/llama/cmd/...
+```
+
+or clone this repository and run
+```
+go install ./...
+```
+
+If you want to build C++, you'll want to symlink `llamac++` to point
+at `llamacc`:
+
+```
+ln -nsf llamacc "$(dirname $(which llamacc))/llamac++"
+```
+
+### Set up your AWS credentials
+
+Llama needs access to your AWS credentials. You can provide them in
+the environment via `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, but
+the recommended approach is to use [`~/.aws/credentials`][aws-creds],
+as used by. Llama will read keys out of either.
+
+[aws-creds]: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+
+### Configure llama's AWS resources
+
+Llama includes a [CloudFormation][cf] template and a command which
+uses it to bootstrap all required resources. You can [read the
+template][template] to see what it's going to do.
+
+[cf]: https://aws.amazon.com/cloudformation/
+[template]: https://github.com/nelhage/llama/blob/master/cmd/llama/internal/bootstrap/template.json
+
+Once your AWS credentials are ready, run
+
+```
+$ llama bootstrap
+```
+
+to create
+the required AWS resources. By default, it will prompt you for an AWS
+region to use; you can avoid the prompt using (e.g.) `llama -region
+us-west-2 bootstrap`.
+
+### Set up a GCC image
+
+You'll need to build a container with an appropriate version of GCC for `llamacc` to use.
+
+If you are running Debian or Ubuntu, you can use
+`scripts/build-gcc-image` to automatically build a Debian image and
+Lambda function matching your local system:
+
+```console
+$ scripts/build-gcc-image
+```
+
+If you want more control or are running another distribution, you can
+look at `images/gcc-focal` for an example Dockerfile to build a
+compiler package. You can build that or a similar image into a Lambda
+function using `llama update-function` like so:
+
+``` console
+$ llama update-function --create --build=images/gcc-focal gcc
+```
+
+## Using `llamacc`
+
+To use `llamacc`, run a build using `make` or a similar build system
+with a much higher `-j` concurrency than you normally would -- try
+5-10x the number of local cores,, and using `llamacc` or `llamac++` as
+your compiler. For example, you might invoke
+
+``` console
+$ make -j100 CC=llamacc CXX=llamac++
+```
+
+## llamacc configuration
+
+`llamacc` takes a number of configuration options from the
+environment, so that they're easy to pass through your build
+system. The currently supported options include.
+
+|Variable|Meaning|
+|--------|-------|
+|`LLAMACC_VERBOSE`| Print commands executed by llamacc|
+|`LLAMACC_LOCAL`  | Run the compilation locally. Useful for e.g. `CC=llamacc ./configure` |
+|`LLAMACC_REMOTE_ASSEMBLE`| Assemble `.S` or `.s` files remotely, as well as C/C++. |
+|`LLAMACC_FUNCTION`| Override the name of the lambda function for the compiler|
+|`LLAMACC_LOCAL_CC`| Specifies the C compiler to delegate to locally, instead of using 'cc' |
+|`LLAMACC_LOCAL_CXX`| Specifies the C++ compiler to delegate to locally, instead of using 'c++' |
+|`LLAMACC_LOCAL_PREPROCESS`| Run the preprocessor locally and send preprocessed source text to the cloud, instead of individual headers. Uses less total compute but much more bandwidth; this can easily saturate your uplink on large builds. |
+|`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
+|`LLAMACC_BUILD_ID`| Assigns an ID to the build. Used for Llama's internal tracing support. |
+
+
+# Other features
+
+## `llama invoke`
+
+You can use `llama invoke` to execute individual commands inside of
+Lambda. The syntax is `llama invoke <function> <command>
+args...`. `<function>` must be the name of a Lambda function using the
+Llama runtime. So, for instance, we can inspect the OS running inside
+our Lambda image:
+
+``` console
+$ llama invoke gcc uname -a
+Linux 169.254.248.253 4.14.225-175.364.amzn2.x86_64 #1 SMP Mon Mar 22 22:06:01 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
+```
+
+If your function consumes files as input or output, you can use the
+`-f` and `-o` options to specify that files should be passed between
+the local and remote nodes. For instance:
+
+``` console
+$ llama invoke -f README.md:INPUT -o OUTPUT gcc sh -c 'sha256sum INPUT > OUTPUT'; cat OUTPUT
+16c399c108bb783fc5c4529df4fecd0decb81bc0707096ebd981ab2b669fae20  INPUT
+```
+
+Note the use of `LOCAL:REMOTE` syntax to optionally specify different
+paths between the local and remote ends.
+
+## `llama xargs`
+
+`llama xargs` provides an xargs-like interface for running commands in
+parallel in Lambda. Here's an example:
 
 The [`optipng`](http://optipng.sourceforge.net/) command compresses
 PNG files and otherwise optimizes them to be as small as possible,
@@ -65,193 +226,30 @@ allocates a full vCPU to the process. That comes out to about 1254400
 MB-seconds of usage, or about $0.017 assuming I'm already out of the
 Lambda free tier.
 
-## `llamacc`
+## Managing Llama functions
 
-Llama also includes a compiler frontend, `llamacc`, which is a drop-in
-replacement for GCC (or clang), but which outsources the actual
-compilation to Amazon Lambda. Coupled with a parallel build process
-(e.g. `make -j`), it can speed up compiles versus local builds,
-especially on laptops without many cores.
+The llama runtime is designed to make it easy to bridge arbitrary
+images into Lambda. You can look at `images/optipng/Dockerfile` in
+this repository for a well-commented example explaining how you can
+wrap an arbitrary image inside of Lambda for use by Llama.
 
-On my Google Pixelbook, with 2 cores and 4 threads, using `llamacc`
-and `make -j24` cuts the time to build
-[boringssl](https://github.com/google/boringssl) in half compared to local compilation.
-
-`llamacc` is a work in progress and I hope for greater speedups with
-some additional work.
-
-# Configuring llama
-
-Llama requires a few resources to be configured in AWS in order to
-work. Llama includes a [CloudFormation][cf] template and a command
-which uses it to bootstrap all required resources. You can [read the
-template][template] to see what it's going to do.
-
-[cf]: https://aws.amazon.com/cloudformation/
-[template]: https://github.com/nelhage/llama/blob/master/cmd/llama/internal/bootstrap/template.json
-
-First of all, we need configured AWS credentials on our development
-machine. These should be configured in `~/.aws/credentials` so the AWS
-CLI and `llama` both can find them.
-
-Once you have those, run `llama bootstrap` to create the required AWS
-resources. By default, it will prompt you for an AWS region to use;
-you can avoid the prompt using (e.g.) `llama -region us-west-2
-bootstrap`.
-
-## Packaging functions
-
-`llama bootstrap` only needs to be run once, ever. Once it is
-successful, we're ready to package code into Lambda functions for use
-with `llama`. We'll follow these steps for each environment we want to
-run code in using Llama.
-
-Llama supports old-type Lambda code packages, where the code is
-distributed as a zip file, but the easiest way to use Llama is with
-Lambda's new Docker container support. Llama can be seen as a bridge
-between the Lambda API and Docker containers, allowing us to invoke
-arbitrary UNIX command lines within a container.
-
-### Building and uploading a container image
-
-To run any code in a container using Llama on Lambda, you just need to
-add the Llama runtime to the container, and point the docker
-`ENTRYPOINT` at it. The `images/optipng/Dockerfile` contains a minimal
-example, used to create the container for the `optipng` demo
-above. It's well-commented and explains the pattern you need to wrap
-an arbitrary image inside of Llama.
-
-We can build that `optipng` container and publish it as a Lambda
-function using `llama update-function`:
+Once you have a Dockerfile or a Docker image, you can use `llama
+update-function` to upload it to ECR and manage the associated Lambda
+function. For instance, we could build optipng for the above example
+like so:
 
 ```console
 $ llama update-function --create --build=images/optipng optipng
 ```
 
-We're now ready to `llama invoke optipng`. Try it out:
-
-```console
-$ llama invoke optipng optipng --help
-```
-
-# llamacc
-
-Llama ships with a `llamac` program that uses `llama` to execute the
-actual compilation inside of a Lambda. You can think of this as a
-[distcc](https://github.com/distcc/distcc) that doesn't require a
-dedicated cluster of your own.
-
-To set it up, you'll need a Lambda function containing an appropriate
-llama-compatible GCC. If you are running Debian or Ubuntu, you can use
-`scripts/build-gcc-image` to automatically build a Debian image and
-Lambda function matching your local system:
-
-```console
-$ scripts/build-gcc-image
-```
-
-If you want more control or are running another OS, you can look at
-`images/gcc-focal` for an example Dockerfile to build a compiler
-package. You can build that or a similar image into a Lambda function
-using `llama update-function` like so:
-
-```
-$ llama update-function --create --build=images/gcc-focal gcc
-```
-
-Once you've done so, you can use `llamacc` to compile code, just like
-`gcc`, except that the compilation happens in the cloud!
-
-
-```console
-$ cat > main.c
-#include <stdio.h>
-
-int main(void) {
-  printf("Hello, World.\n");
-  return 0;
-}
-$ export LLAMACC_VERBOSE=1; llamacc -c main.c -o main.o && llamacc main.o -o main
-2021/04/06 17:46:57 run cpp -MM: ["cc" "-MM" "-MF" "-" "main.c"]
-2021/04/06 17:46:57 [llamacc] compiling remotely: daemon.InvokeWithFilesArgs{...}
-2021/04/06 17:46:58 [llamacc] compiling locally: no supported input detected (["llamacc" "main.o" "-o" "main"])
-```
-
-We use `LLAMACC_VERBOSE` to make `llamacc` show what it's doing. We
-can see that it first runs `cc` locally to preprocess the given source
-and discover all the header files it depends on, and then invokes
-`llama` to do the actual compilation in the cloud. Finally, it
-transparently runs the link step locally.
-
-Because `llamacc` still needs to run the preprocessor locally to
-discover dependencies, it is somewhat limited in its scalability, but
-it can still get a significant speedup on large projects or on laptops
-with slow CPUs with limited cores.
-
-You can also compile C++ by symlinking `llamac++` to `llamacc`.
-
-## llamacc configuration
-
-`llamacc` takes a number of configuration options from the
-environment, so that they're easy to pass through your build
-system. The currently supported options include.
-
-|Variable|Meaning|
-|--------|-------|
-|`LLAMACC_VERBOSE`| Print commands executed by llamacc|
-|`LLAMACC_LOCAL`  | Run the compilation locally. Useful for e.g. `CC=llamacc ./configure` |
-|`LLAMACC_REMOTE_ASSEMBLE`| Assemble `.S` or `.s` files remotely, as well as C/C++. |
-|`LLAMACC_FUNCTION`| Override the name of the lambda function for the compiler|
-|`LLAMACC_LOCAL_CC`| Specifies the C compiler to delegate to locally, instead of using 'cc' |
-|`LLAMACC_LOCAL_CXX`| Specifies the C++ compiler to delegate to locally, instead of using 'c++' |
-|`LLAMACC_LOCAL_PREPROCESS`| Run the preprocessor locally and send preprocessed source text to the cloud, instead of individual headers. Uses less total compute but much more bandwidth; this can easily saturate your uplink on large builds. |
-|`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
-|`LLAMACC_BUILD_ID`| Assigns an ID to the build. Used for Llama's internal tracing support. |
+When specifying the memory size for your functions, note that [Lambda
+assigns CPU resources to functions based on their memory
+allocation](https://docs.aws.amazon.com/lambda/latest/dg/configuration-memory.html). At
+1,769 MB, your function will have the equivalent of one full core.
 
 # Other notes
 
-## Using a zip file
-
-
-Llama also supports packaging code using an old-style Lambda layer and
-zip file for code. In this approach, we are responsible for packaging
-all of our dependencies.
-
-By way of example, we'll just package a small shell script for
-lambda. First, we need to make the Llama runtime available as a Lambda
-layer:
-
-```console
-$ llama_runtime_arn=$(scripts/dev/publish-runtime)
-```
-
-Now we can create a zip file containing our code, and publish the
-function:
-
-```console
-$ mkdir _obj
-$ zip -o _obj/hello.zip -j images/hello-llama/hello.sh
-$ aws lambda create-function \
-    --function-name hello \
-    --zip-file fileb://_obj/hello.zip \
-    --runtime provided.al2 \
-    --handler hello.sh \
-    --timeout 60 \
-    --memory-size 512 \
-    --layers "$llama_runtime_arn" \
-    --environment "Variables={LLAMA_OBJECT_STORE=$LLAMA_OBJECT_STORE}" \
-    --role "arn:aws:iam::${account_id}:role/llama"
-```
-
-And invoke it:
-
-```console
-$ llama invoke hello world
-Hello from Amazon Lambda
-Received args: world
-```
-
-# Inspiration
+## Inspiration
 
 Llama is in large part inspired by [`gg`][gg], a tool for outsourcing
 builds to Lambda. Llama is a much simpler tool but shares some of the

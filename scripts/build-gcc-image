@@ -23,7 +23,7 @@ main() {
     local yes=
 
     local temp
-    temp=$(getopt -o yn --long yes,dry-run,gcc-package:,local-headers::,no-local-headers,extra-packages:: -n "$0" -- "$@")
+    temp=$(getopt -o hyn --long help,yes,dry-run,local-headers::,no-local-headers,extra-packages:: -n "$0" -- "$@")
     if [ $? -ne 0 ]; then
         exit 1
     fi
@@ -60,6 +60,32 @@ main() {
             -y|--yes)
                 yes=1
                 shift
+                ;;
+            -h|--help)
+                cat <<EOF >&2
+Usage: $0 OPTIONS [FUNCTION-NAME]
+  Build a GCC image and Lambda function suitable for llamacc.
+
+  -h, --help
+    Print this help
+
+  -y, --yes
+    Don't prompt for confirmation
+
+  -n, --dry-run
+    Don't upload the image or talk to AWS
+
+  --local-headers[=yes|no], --no-local-headers
+    Do/don't package the local system's C headers into the Llama
+    container image. This provides an easy way to build anything that
+    will build locally, but is very unreproducible.
+
+  --extra-packages='package names'
+    Install additional Debian packages into the image. This can be
+    used to make additional development packages available for the
+    remote GCC.
+EOF
+                exit 0
                 ;;
             '--')
                 shift
@@ -104,7 +130,7 @@ main() {
     cat > "$tmpdir/build/Dockerfile" <<EOF
 FROM ghcr.io/nelhage/llama as llama
 FROM $base_image
-RUN apt-get update && apt-get -y install gcc $gcc_package $gxx_package ca-certificates $extra_packages && apt-get clean
+RUN apt-get update && apt-get -y install gcc g++ $gcc_package $gxx_package ca-certificates $extra_packages && apt-get clean
 COPY --from=llama /llama_runtime /llama_runtime
 WORKDIR /
 ENTRYPOINT ["/llama_runtime"]
