@@ -130,7 +130,7 @@ EOF
     cat > "$tmpdir/build/Dockerfile" <<EOF
 FROM ghcr.io/nelhage/llama as llama
 FROM $base_image
-RUN apt-get update && apt-get -y install gcc $gcc_package $gxx_package ca-certificates $extra_packages && apt-get clean
+RUN apt-get update && apt-get -y install gcc g++ $gcc_package $gxx_package ca-certificates $extra_packages && apt-get clean
 COPY --from=llama /llama_runtime /llama_runtime
 WORKDIR /
 ENTRYPOINT ["/llama_runtime"]
