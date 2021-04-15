@@ -40,10 +40,7 @@ func stringify(v interface{}) string {
 	}
 }
 
-func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
-	var words []string
-	var walk func(t *TraceTree, path string)
-
+func collectGlobal(tree *TraceTree) map[string]interface{} {
 	global := make(map[string]interface{})
 	tree.EachSpan(func(span *tracing.Span) error {
 		if span.Fields != nil {
@@ -55,7 +52,15 @@ func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
 		}
 		return nil
 	})
+	return global
+}
 
+func treeToCSV(w *csv.Writer, tree *TraceTree, extra []string) {
+	var words []string
+
+	global := collectGlobal(tree)
+
+	var walk func(t *TraceTree, path string)
 	walk = func(t *TraceTree, path string) {
 		if path == "" {
 			path = t.span.Name

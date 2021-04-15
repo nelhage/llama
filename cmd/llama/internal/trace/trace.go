@@ -40,6 +40,8 @@ type TraceCommand struct {
 	trace       string
 	jaeger      string
 	addFields   string
+
+	parquet string
 }
 
 func (*TraceCommand) Name() string     { return "trace" }
@@ -61,6 +63,8 @@ func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
 
 	flags.StringVar(&c.traceViewer, "trace-viewer", "", "Write out in Chrome trace-viewer format")
 	flags.StringVar(&c.jaeger, "jaeger", "", "Write out in jaeger JSON format")
+
+	flags.StringVar(&c.parquet, "parquet", "", "Write spans as a parquet file")
 }
 
 type TraceTree struct {
@@ -264,6 +268,13 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 		err := writeJaeger(trees, c.jaeger)
 		if err != nil {
 			log.Fatalf("write jaeger: %s", err.Error())
+		}
+	}
+
+	if c.parquet != "" {
+		err := c.WriteParquet(spans, trees)
+		if err != nil {
+			log.Fatalf("write parquet: %s", err.Error())
 		}
 	}
 
