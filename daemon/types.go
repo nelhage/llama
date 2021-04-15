@@ -38,6 +38,10 @@ type InvokeWithFilesArgs struct {
 	Stdin      []byte
 	Files      files.List
 	Outputs    files.List
+
+	// If true, release the llamacc semaphore to allow other
+	// llamacc processes to use CPU while we talk to AWS
+	DropSemaphore bool
 }
 
 type InvokeWithFilesReply struct {

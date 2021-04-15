@@ -41,6 +41,7 @@ type DaemonCommand struct {
 	start, autostart bool
 	detach           bool
 	idleTimeout      time.Duration
+	ccConcurrency    int64
 }
 
 func (*DaemonCommand) Name() string     { return "daemon" }
@@ -59,6 +60,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&c.detach, "detach", false, "Detach and run the server in the background")
 	flags.StringVar(&c.path, "path", cli.SocketPath(), "Path to daemon socket")
 	flags.DurationVar(&c.idleTimeout, "idle-timeout", 10*time.Minute, "Idle timeout")
+	flags.Int64Var(&c.ccConcurrency, "cc-concurrency", 0, "Configure llamacc concurrency limit")
 }
 
 func raiseRlimits() {
@@ -162,10 +164,11 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		} else {
 			global := cli.MustState(ctx)
 			if err := server.Start(ctx, &server.StartArgs{
-				Path:        c.path,
-				Session:     global.MustSession(),
-				Store:       global.MustStore(),
-				IdleTimeout: c.idleTimeout,
+				Path:               c.path,
+				Session:            global.MustSession(),
+				Store:              global.MustStore(),
+				IdleTimeout:        c.idleTimeout,
+				LlamaCCConcurrency: c.ccConcurrency,
 			}); err != nil {
 				if c.autostart && err == server.ErrAlreadyRunning {
 					return subcommands.ExitSuccess

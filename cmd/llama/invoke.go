@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/rpc"
 	"os"
 	"text/template"
 
@@ -81,7 +82,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 		return subcommands.ExitFailure
 	}
 
-	cl, err := server.DialWithAutostart(ctx, cli.SocketPath())
+	cl, err := server.DialWithAutostart(ctx, cli.SocketPath(), rpc.DefaultRPCPath)
 	if err != nil {
 		log.Fatalf("connecting to daemon: %s", err.Error())
 	}
