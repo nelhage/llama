@@ -19,6 +19,8 @@ import (
 	"flag"
 	"log"
 	"os"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/google/subcommands"
 	"github.com/nelhage/llama/cmd/internal/cli"
@@ -60,13 +62,41 @@ func runLlama(ctx context.Context) int {
 	debugAWS := false
 	var storeConcurrency int
 	var trace string
+	var cpuProfile, memProfile string
 	flag.StringVar(&regionOverride, "region", "", "AWS region")
 	flag.StringVar(&storeOverride, "store", "", "Path to the llama object store. s3://BUCKET/PATH")
 	flag.BoolVar(&debugAWS, "debug-aws", false, "Log all AWS requests/responses")
 	flag.IntVar(&storeConcurrency, "s3-concurrency", defaultStoreConcurrency, "Maximum concurrent S3 uploads/downloads")
 	flag.StringVar(&trace, "trace", "", "Write tracing data to file")
+	flag.StringVar(&cpuProfile, "cpu-profile", "", "Write CPU profile to file")
+	flag.StringVar(&memProfile, "mem-profile", "", "Write memory profile to file")
 
 	flag.Parse()
+
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+	if memProfile != "" {
+		defer func() {
+			f, err := os.Create(memProfile)
+			if err != nil {
+				log.Fatal("could not create memory profile: ", err)
+			}
+			defer f.Close() // error handling omitted for example
+			runtime.GC()    // get up-to-date statistics
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				log.Fatal("could not write memory profile: ", err)
+			}
+		}()
+	}
 
 	if trace != "" {
 		fh, err := os.Create(trace)
