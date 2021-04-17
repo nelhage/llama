@@ -262,6 +262,7 @@ func (c *TraceCommand) WriteParquet(spans []tracing.Span, trees []*TraceTree) er
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 		goparquet.WithSchemaDefinition(schema),
 		goparquet.WithCreator("llama-trace"),
+		goparquet.WithMaxRowGroupSize(2*1024*1024),
 	)
 
 	for _, tree := range trees {
