@@ -27,10 +27,12 @@ import (
 	"time"
 
 	"github.com/google/subcommands"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nelhage/llama/tracing"
 )
 
 type TraceCommand struct {
+	zstd        bool
 	fixup       bool
 	maxTrees    int
 	depth       int
@@ -51,6 +53,7 @@ func (*TraceCommand) Usage() string {
 `
 }
 func (c *TraceCommand) SetFlags(flags *flag.FlagSet) {
+	flags.BoolVar(&c.zstd, "zstd", false, "Read zstd-compressed trace files")
 	flags.BoolVar(&c.fixup, "fixup", false, "Attempt to fix-up span timestamps to be internally consistent")
 	flags.IntVar(&c.maxTrees, "max-trees", 0, "Render only the first N trees")
 	flags.IntVar(&c.depth, "depth", 0, "Render the trace tree only to depth N")
@@ -197,6 +200,16 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 	if err != nil {
 		log.Fatalf("open(%q): %s", fname, err)
 	}
+	defer fh.Close()
+	var r io.Reader = fh
+	if c.zstd {
+		dec, err := zstd.NewReader(r)
+		if err != nil {
+			log.Fatalf("zstd: %s", err.Error())
+		}
+		defer dec.Close()
+		r = dec
+	}
 	var extraFields map[string]string
 	if c.addFields != "" {
 		extraFields = make(map[string]string)
@@ -209,8 +222,7 @@ func (c *TraceCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			extraFields[kv[:eq]] = kv[eq+1:]
 		}
 	}
-	defer fh.Close()
-	decoder := json.NewDecoder(fh)
+	decoder := json.NewDecoder(r)
 	var spans []tracing.Span
 	for {
 		var span tracing.Span
