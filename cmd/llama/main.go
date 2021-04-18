@@ -108,7 +108,9 @@ func runLlama(ctx context.Context) int {
 		}
 		var w io.Writer = fh
 		if strings.HasSuffix(trace, ".zstd") || strings.HasSuffix(trace, ".zst") {
-			zw, err := zstd.NewWriter(fh)
+			zw, err := zstd.NewWriter(fh,
+				zstd.WithEncoderLevel(zstd.SpeedFastest),
+			)
 			if err != nil {
 				log.Fatalf("trace: %s", err.Error())
 			}

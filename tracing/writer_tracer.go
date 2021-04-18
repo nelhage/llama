@@ -62,7 +62,7 @@ func (wt *WriterTracer) writer(ctx context.Context) error {
 	}
 }
 
-const bufferSize = 10
+const bufferSize = 64
 
 func WithWriterTracer(ctx context.Context, w io.Writer) (context.Context, *WriterTracer) {
 	wg, ctx := errgroup.WithContext(ctx)
