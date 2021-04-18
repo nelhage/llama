@@ -36,7 +36,7 @@ const (
 	type_boolean
 )
 
-func collectFields(spans []tracing.Span) (map[string]fieldType, *parquetschema.ColumnDefinition) {
+func collectFields(spans []tracing.Span) (map[string]fieldType, []*parquetschema.ColumnDefinition) {
 	fields := make(map[string]fieldType)
 	for _, span := range spans {
 		for k, v := range span.Fields {
@@ -73,10 +73,7 @@ func collectFields(spans []tracing.Span) (map[string]fieldType, *parquetschema.C
 			}
 		}
 	}
-	var out parquetschema.ColumnDefinition
-	out.SchemaElement = &parquet.SchemaElement{
-		Name: "fields",
-	}
+	var out []*parquetschema.ColumnDefinition
 	for k, v := range fields {
 		if v == type_invalid {
 			continue
@@ -97,9 +94,9 @@ func collectFields(spans []tracing.Span) (map[string]fieldType, *parquetschema.C
 		case type_boolean:
 			col.SchemaElement.Type = parquet.TypePtr(parquet.Type_BOOLEAN)
 		}
-		out.Children = append(out.Children, &col)
+		out = append(out, &col)
 	}
-	return fields, &out
+	return fields, out
 }
 
 func int32ptr(i int32) *int32 {
@@ -162,8 +159,8 @@ func collectParquetSchema(spans []tracing.Span) (map[string]fieldType, *parquets
 				Type: parquet.TypePtr(parquet.Type_INT64),
 			},
 		},
-		fieldCols,
 	}
+	columns = append(columns, fieldCols...)
 
 	rootCol := &parquetschema.ColumnDefinition{
 		SchemaElement: &parquet.SchemaElement{
@@ -186,7 +183,6 @@ func writeParquetTree(fw *goparquet.FileWriter, fieldTypes map[string]fieldType,
 			path = fmt.Sprintf("%s>%s", path, t.span.Name)
 		}
 		columns := make(map[string]interface{})
-		fields := make(map[string]interface{})
 
 		columns["trace_id"] = []byte(t.span.TraceId)
 		columns["span_id"] = []byte(t.span.SpanId)
@@ -211,30 +207,29 @@ func writeParquetTree(fw *goparquet.FileWriter, fieldTypes map[string]fieldType,
 			}
 			switch ty {
 			case type_string:
-				fields[k] = []byte(v.(string))
+				columns[k] = []byte(v.(string))
 			case type_int64:
 				switch t := v.(type) {
 				case int:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				case int32:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				case uint32:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				case int64:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				case uint64:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				case float64:
-					fields[k] = int64(t)
+					columns[k] = int64(t)
 				}
 			case type_float64:
-				fields[k] = v
+				columns[k] = v
 			case type_boolean:
-				fields[k] = v
+				columns[k] = v
 			}
 		}
 
-		columns["fields"] = fields
 		if err := fw.AddData(columns); err != nil {
 			return err
 		}
