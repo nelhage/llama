@@ -17,12 +17,15 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 
 	"github.com/google/subcommands"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nelhage/llama/cmd/internal/cli"
 	"github.com/nelhage/llama/cmd/llama/internal/bootstrap"
 	"github.com/nelhage/llama/cmd/llama/internal/function"
@@ -103,8 +106,17 @@ func runLlama(ctx context.Context) int {
 		if err != nil {
 			log.Fatalf("trace: %s", err.Error())
 		}
+		var w io.Writer = fh
+		if strings.HasSuffix(trace, ".zstd") || strings.HasSuffix(trace, ".zst") {
+			zw, err := zstd.NewWriter(fh)
+			if err != nil {
+				log.Fatalf("trace: %s", err.Error())
+			}
+			w = zw
+			defer fh.Close()
+		}
 		var wt *tracing.WriterTracer
-		ctx, wt = tracing.WithWriterTracer(ctx, fh)
+		ctx, wt = tracing.WithWriterTracer(ctx, w)
 		defer wt.Close()
 	}
 
