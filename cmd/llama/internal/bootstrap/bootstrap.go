@@ -22,6 +22,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -51,12 +53,32 @@ func (*BootstrapCommand) Usage() string {
 func (c *BootstrapCommand) SetFlags(flags *flag.FlagSet) {
 }
 
+func (c *BootstrapCommand) ensureLlamaCxx() error {
+	llamacc, err := exec.LookPath("llamacc")
+	if err != nil {
+		return err
+	}
+	llamacxx := path.Join(path.Dir(llamacc), "llamac++")
+	_, err = os.Stat(llamacxx)
+	if err == nil {
+		return nil
+	}
+	return os.Symlink("llamacc", llamacxx)
+}
+
 func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if c.in == nil {
 		c.in = bufio.NewReader(os.Stdin)
 	}
 	if c.out == nil {
 		c.out = os.Stdout
+	}
+
+	log.Printf("Ensuring llamac++ symlink exists...")
+	err := c.ensureLlamaCxx()
+	if err != nil {
+		log.Printf("Unable to create llamacc++ symlink. You may need to create it by hand if you want to build C++")
+		log.Printf("Error: %s", err.Error())
 	}
 
 	global := cli.MustState(ctx)
