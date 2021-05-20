@@ -75,11 +75,11 @@ type Include struct {
 	Path string
 }
 
-func (c *Compilation) Compiler() string {
+func (c *Compilation) Compiler(cfg *Config) string {
 	if c.Language == "c++" {
-		return "c++"
+		return cfg.LocalCXX
 	}
-	return "cc"
+	return cfg.LocalCC
 }
 
 type Flags struct {
