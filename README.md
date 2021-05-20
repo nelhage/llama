@@ -25,7 +25,7 @@ current speedups achievable from `llamacc`:
 |-------|--------|-----------|----------|-------------|------------|-------------------|
 |Linux v5.10 defconfig|Desktop (24-thread Ryzen 9 3900)|`make -j30`|1:06|`make -j100`|0:42|$0.15|
 |Linux v5.10 defconfig|Simulated laptop (limited to 4 threads)|`make -j8`|4:56|`make -j100`|1:26|$0.15|
-|clang+LLVM|Desktop (24-thread Ryzen 9 3900)|`ninja -j30`|9:21|`ninja -j200`|2:00|$0.67|
+|clang+LLVM, -O0|Desktop (24-thread Ryzen 9 3900)|`ninja -j30`|5:33|`ninja -j400`|1:24|$0.49|
 
 As you can see, Llama is capable of speedups for large builds even on
 my large, powerful desktop system, and the advantage is more
