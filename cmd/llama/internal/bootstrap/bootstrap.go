@@ -91,8 +91,8 @@ func (c *BootstrapCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ..
 	stsSvc := sts.New(session.Copy(aws.NewConfig().WithCredentialsChainVerboseErrors(true)))
 	ident, err := stsSvc.GetCallerIdentity(&sts.GetCallerIdentityInput{})
 	if err != nil {
-		log.Printf("Unable to get AWS account identity information.")
-		log.Printf("Do you have AWS credentials configured?")
+		log.Printf("Unable to get AWS account identity information: %s", err.Error())
+		log.Printf("Do you have AWS credentials configured? https://github.com/nelhage/llama#set-up-your-aws-credentials")
 		return subcommands.ExitFailure
 	}
 
