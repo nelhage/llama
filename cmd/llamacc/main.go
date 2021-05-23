@@ -293,7 +293,7 @@ func main() {
 		if ex, ok := err.(*exec.ExitError); ok {
 			os.Exit(ex.ExitCode())
 		}
-		fmt.Fprintf(os.Stderr, "Running llamacc locally: %s\n", err.Error())
+		fmt.Fprintf(os.Stderr, "Running %s locally: %s\n", cc, err.Error())
 		os.Exit(1)
 	}
 }
