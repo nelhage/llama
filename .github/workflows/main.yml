@@ -24,23 +24,23 @@ jobs:
       - name: Check license headers
         run: |
           ./scripts/dev/check-license
+  build-image:
+    runs-on: ubuntu-latest
+    if: ${{secrets.GHCR_TOKEN}}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
       - name: Build docker image
         run: |
           docker build -t "ghcr.io/nelhage/llama:$GITHUB_SHA" .
-      - name: Push image to registry
-        if: ${{secrets.GHCR_TOKEN}}
-        steps:
-        - name: Login to GitHub Container Registry
-          uses: docker/login-action@v1
-          with:
-            registry: ghcr.io
-            username: ${{ github.repository_owner }}
-            password: ${{ secrets.GHCR_TOKEN }}
-        - name: Push docker image
-          run: |
-            docker push "ghcr.io/nelhage/llama:$GITHUB_SHA"
-        - name: Tag "latest" docker container
-          if: ${{github.event_name == 'push' && github.ref == 'refs/heads/main'}}
-          run: |
-            docker tag "ghcr.io/nelhage/llama:$GITHUB_SHA" "ghcr.io/nelhage/llama:latest"
-            docker push "ghcr.io/nelhage/llama:latest"
+          docker push "ghcr.io/nelhage/llama:$GITHUB_SHA"
+      - name: Tag "latest" docker container
+        if: ${{github.event_name == 'push' && github.ref == 'refs/heads/main'}}
+        run: |
+          docker tag "ghcr.io/nelhage/llama:$GITHUB_SHA" "ghcr.io/nelhage/llama:latest"
+          docker push "ghcr.io/nelhage/llama:latest"
