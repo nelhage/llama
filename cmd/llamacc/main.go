@@ -147,7 +147,7 @@ func constructRemotePreprocessInvoke(ctx context.Context, cfg *Config, comp *Com
 		args.Files = args.Files.Append(remap(dep, wd))
 	}
 
-	args.Args = []string{comp.Compiler(cfg)}
+	args.Args = []string{comp.RemoteCompiler(cfg)}
 
 	args.Args = append(args.Args, "-I", toRemote(".", wd))
 	for _, inc := range comp.Includes {
@@ -183,9 +183,9 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 	if err != nil {
 		return err
 	}
-	ccpath, err := exec.LookPath(comp.Compiler(cfg))
+	ccpath, err := exec.LookPath(comp.LocalCompiler(cfg))
 	if err != nil {
-		return fmt.Errorf("find %s: %w", comp.Compiler(cfg), err)
+		return fmt.Errorf("find %s: %w", comp.LocalCompiler(cfg), err)
 	}
 
 	var preprocessed bytes.Buffer
@@ -193,7 +193,7 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 		var preprocessor exec.Cmd
 		_, span := tracing.StartSpan(ctx, "preprocess")
 		preprocessor.Path = ccpath
-		preprocessor.Args = []string{comp.Compiler(cfg)}
+		preprocessor.Args = []string{comp.LocalCompiler(cfg)}
 		preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
 		if !cfg.FullPreprocess {
 			preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
@@ -221,7 +221,7 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 		Stdin: preprocessed.Bytes(),
 		Trace: tracing.PropagationFromContext(ctx),
 	}
-	args.Args = []string{comp.Compiler(cfg)}
+	args.Args = []string{comp.RemoteCompiler(cfg)}
 	args.Args = append(args.Args, comp.RemoteArgs...)
 	if !cfg.FullPreprocess {
 		args.Args = append(args.Args, "-fdirectives-only", "-fpreprocessed")

@@ -29,12 +29,12 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 	defer span.End()
 
 	var preprocessor exec.Cmd
-	ccpath, err := exec.LookPath(comp.Compiler(cfg))
+	ccpath, err := exec.LookPath(comp.LocalCompiler(cfg))
 	if err != nil {
 		return nil, err
 	}
 	preprocessor.Path = ccpath
-	preprocessor.Args = []string{comp.Compiler(cfg)}
+	preprocessor.Args = []string{comp.LocalCompiler(cfg)}
 	preprocessor.Args = append(preprocessor.Args, comp.UnknownArgs...)
 	for _, opt := range comp.Defs {
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
