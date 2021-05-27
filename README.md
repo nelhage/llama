@@ -46,7 +46,7 @@ pronounced on smaller workstations.
 You'll need to install Llama from source. You can run
 
 ```
-go install github.com/nelhage/llama/cmd/...
+go get -u github.com/nelhage/llama/cmd/...
 ```
 
 or clone this repository and run
