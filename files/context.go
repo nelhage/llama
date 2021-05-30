@@ -16,6 +16,7 @@ package files
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"strings"
 )
@@ -74,4 +75,22 @@ func (io *IOContext) InputOutput(file string) (string, error) {
 
 func (io *IOContext) IO(file string) (string, error) {
 	return io.InputOutput(file)
+}
+
+// WorkingDir returns the absolute working directory of the process.
+func WorkingDir() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	// If the working directory is set to the Linux procfs directory
+	// (Bazel sandboxing does this), we need to resolve it to the real
+	// directory so that it can be passed across to the daemon, which
+	// may have a different working directory.
+	if wd == "/proc/self/cwd" {
+		return os.Readlink(wd)
+	}
+
+	return wd, err
 }

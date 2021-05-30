@@ -89,7 +89,7 @@ func (c *InvokeCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 	args.Function = flag.Arg(0)
 	args.ReturnLogs = c.logs
 
-	wd, err := os.Getwd()
+	wd, err := files.WorkingDir()
 	if err != nil {
 		log.Fatalf("getcwd: %s", err.Error())
 	}

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	fs "github.com/nelhage/llama/files"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/protocol/files"
 	"github.com/nelhage/llama/store"
@@ -96,7 +97,7 @@ func TestPrepareInvocation_Xargs(t *testing.T) {
 	must(t, ioutil.WriteFile(path.Join(tmp, "b.txt"), []byte(contentsB), 0644))
 	must(t, ioutil.WriteFile(path.Join(tmp, "common.txt"), []byte(contentsCommon), 0644))
 
-	oldpwd, _ := os.Getwd()
+	oldpwd, _ := fs.WorkingDir()
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatalf("chdir: %s", err.Error())
 	}
