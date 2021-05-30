@@ -38,6 +38,17 @@ import (
 	"github.com/nelhage/llama/cmd/internal/cli"
 )
 
+func stackRolledBack(s *cloudformation.Stack) bool {
+	switch *s.StackStatus {
+	case cloudformation.StackStatusRollbackComplete,
+		cloudformation.StackStatusRollbackFailed,
+		cloudformation.StackStatusRollbackInProgress:
+		return true
+	default:
+		return false
+	}
+}
+
 type BootstrapCommand struct {
 	in  *bufio.Reader
 	out io.Writer
@@ -148,15 +159,15 @@ poll:
 			break poll
 		case cloudformation.StackStatusCreateInProgress:
 			time.Sleep(2 * time.Second)
-		case cloudformation.StackStatusRollbackComplete,
-			cloudformation.StackStatusRollbackFailed,
-			cloudformation.StackStatusRollbackInProgress:
-			log.Printf("Stack is in rollback! Something went wrong.")
-			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
-			return subcommands.ExitFailure
 		default:
-			log.Printf("Unknown stack state: %s. Something went wrong.", *stack.StackStatus)
-			log.Printf("Stack status reason: %s", *stack.StackStatusReason)
+			if stackRolledBack(stack) {
+				log.Printf("Stack is in rollback: %s. Something went wrong.", *stack.StackStatus)
+			} else {
+				log.Printf("Unknown stack state: %s. Something went wrong.", *stack.StackStatus)
+			}
+			if stack.StackStatusReason != nil {
+				log.Printf("Stack status reason: %s", *stack.StackStatusReason)
+			}
 			return subcommands.ExitFailure
 		}
 	}
