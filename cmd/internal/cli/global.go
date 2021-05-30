@@ -16,13 +16,18 @@ package cli
 
 import (
 	"log"
+	"os"
+	"path"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/mitchellh/go-homedir"
 	"github.com/nelhage/llama/store"
 	"github.com/nelhage/llama/store/s3store"
 )
+
+var initEnv sync.Once
 
 type GlobalState struct {
 	mu      sync.Mutex
@@ -34,6 +39,39 @@ type GlobalState struct {
 }
 
 func (g *GlobalState) Session() (*session.Session, error) {
+	// AWS shared credentials default to being stored in ~/.aws
+	// directory, and the code path that looks them up depends on the
+	// HOME environment variable being set correctly. Unfortunately some
+	// build environments (e.g. Bazel) make it hard to pass environment
+	// variables through to the llama toolchain, im which case HOME
+	// will not be set.
+	//
+	// However, homedir.Dir has alternate strategies that work if HOME
+	// isn't set, so we can use that to determine the default shared
+	// credential and config files and pass those defaults into the
+	// AWS session by setting the well-known environment variables.
+	initEnv.Do(func() {
+		if _, ok := os.LookupEnv("HOME"); ok {
+			return
+		}
+
+		home, err := homedir.Dir()
+		if err != nil {
+			log.Printf("llama: unable to determine home directory path: %s", err.Error())
+			return
+		}
+
+		if _, ok := os.LookupEnv("AWS_SHARED_CREDENTIALS_FILE"); !ok {
+			os.Setenv("AWS_SHARED_CREDENTIALS_FILE",
+				path.Join(home, ".aws", "credentials"))
+		}
+
+		if _, ok := os.LookupEnv("AWS_SHARED_CONFIG_FILE"); !ok {
+			os.Setenv("AWS_SHARED_CONFIG_FILE",
+				path.Join(home, ".aws", "config"))
+		}
+	})
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.sessionLocked()
