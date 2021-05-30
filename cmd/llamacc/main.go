@@ -122,7 +122,7 @@ func rewriteMF(ctx context.Context, comp *Compilation) error {
 }
 
 func constructRemotePreprocessInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
-	wd, err := os.Getwd()
+	wd, err := files.WorkingDir()
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func constructRemotePreprocessInvoke(ctx context.Context, cfg *Config, comp *Com
 }
 
 func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
-	wd, err := os.Getwd()
+	wd, err := files.WorkingDir()
 	if err != nil {
 		return err
 	}
