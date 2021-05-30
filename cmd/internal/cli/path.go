@@ -18,17 +18,15 @@ import (
 	"log"
 	"os"
 	"path"
+
+	"github.com/mitchellh/go-homedir"
 )
 
 func ConfigDir() string {
 	if dir := os.Getenv("LLAMA_DIR"); dir != "" {
 		return dir
 	}
-	if home := os.Getenv("HOME"); home != "" {
-		return path.Join(home, ".llama")
-	}
-
-	dir, err := os.UserHomeDir()
+	dir, err := homedir.Dir()
 	if err != nil {
 		log.Fatalf("Cannot find homedir: %s", err.Error())
 	}
