@@ -17,12 +17,43 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path"
+	"strings"
 
 	"github.com/nelhage/llama/tracing"
 )
+
+func discoverDefaultSearchPath(ctx context.Context, compiler string, cfg *Config, comp *Compilation) ([]string, error) {
+	var exe exec.Cmd
+	exe.Path = compiler
+	exe.Args = []string{comp.LocalCompiler(cfg), "-Wp,-v", "-x", string(comp.Language), "-E", "-"}
+	var stderr bytes.Buffer
+	exe.Stderr = &stderr
+
+	if err := exe.Run(); err != nil {
+		return nil, err
+	}
+
+	var paths []string
+	for {
+		line, err := stderr.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(line, " /") {
+			dir := strings.Trim(line, " \n")
+			paths = append(paths, path.Clean(dir))
+		}
+	}
+	return paths, nil
+}
 
 func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
 	_, span := tracing.StartSpan(ctx, "detect_dependencies")
@@ -44,7 +75,7 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
 		preprocessor.Args = append(preprocessor.Args, opt.Path)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-MM", "-MF", "-", comp.Input)
+	preprocessor.Args = append(preprocessor.Args, "-M", "-MF", "-", comp.Input)
 	var deps bytes.Buffer
 	preprocessor.Stdout = &deps
 	preprocessor.Stderr = os.Stderr
@@ -55,9 +86,34 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 	if err := preprocessor.Run(); err != nil {
 		return nil, err
 	}
+
+	syspaths, err := discoverDefaultSearchPath(ctx, ccpath, cfg, comp)
+
+	if cfg.Verbose {
+		log.Printf("Discovered local system path: %q", syspaths)
+	}
+
 	deplist, err := parseMakeDeps(deps.Bytes())
+
+	deplist = removePaths(deplist, syspaths)
+
 	span.AddField("count", len(deplist))
 	return deplist, err
+}
+
+func removePaths(paths []string, remove []string) []string {
+	out := 0
+outer:
+	for in := 0; in != len(paths); in++ {
+		for _, pfx := range remove {
+			if strings.HasPrefix(paths[in], pfx) {
+				continue outer
+			}
+		}
+		paths[out] = paths[in]
+		out++
+	}
+	return paths[:out]
 }
 
 func parseMakeDeps(buf []byte) ([]string, error) {
