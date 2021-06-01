@@ -1,6 +1,6 @@
-# llama -- A CLI for outsourcing computation to Amazon Lambda
+# llama -- A CLI for outsourcing computation to AWS Lambda
 
-Llama is a tool for running UNIX commands inside of Amazon Lambda. Its
+Llama is a tool for running UNIX commands inside of AWS Lambda. Its
 goal is to make it easy to outsource compute-heavy tasks to Lambda,
 with its enormous available parallelism, from your shell.
 
