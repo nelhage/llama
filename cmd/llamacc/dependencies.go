@@ -20,11 +20,13 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/tracing"
 )
 
-func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
+func detectDependencies(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) ([]string, error) {
 	_, span := tracing.StartSpan(ctx, "detect_dependencies")
 	defer span.End()
 
@@ -44,7 +46,7 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
 		preprocessor.Args = append(preprocessor.Args, opt.Path)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-MM", "-MF", "-", comp.Input)
+	preprocessor.Args = append(preprocessor.Args, "-M", "-MF", "-", comp.Input)
 	var deps bytes.Buffer
 	preprocessor.Stdout = &deps
 	preprocessor.Stderr = os.Stderr
@@ -55,9 +57,36 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 	if err := preprocessor.Run(); err != nil {
 		return nil, err
 	}
+
+	includePath, err := client.GetCompilerIncludePath(&daemon.GetCompilerIncludePathArgs{
+		Compiler: ccpath,
+		Language: string(comp.Language),
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	deplist, err := parseMakeDeps(deps.Bytes())
+
+	deplist = removePaths(deplist, includePath.Paths)
+
 	span.AddField("count", len(deplist))
 	return deplist, err
+}
+
+func removePaths(paths []string, remove []string) []string {
+	out := 0
+outer:
+	for in := 0; in != len(paths); in++ {
+		for _, pfx := range remove {
+			if strings.HasPrefix(paths[in], pfx) {
+				continue outer
+			}
+		}
+		paths[out] = paths[in]
+		out++
+	}
+	return paths[:out]
 }
 
 func parseMakeDeps(buf []byte) ([]string, error) {

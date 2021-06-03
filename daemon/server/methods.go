@@ -15,10 +15,14 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -237,4 +241,59 @@ func (d *Daemon) TraceSpans(in *daemon.TraceSpansArgs, out *daemon.TraceSpansRep
 	tracing.SubmitAll(d.ctx, in.Spans)
 	*out = daemon.TraceSpansReply{}
 	return nil
+}
+
+func (d *Daemon) GetCompilerIncludePath(in *daemon.GetCompilerIncludePathArgs, out *daemon.GetCompilerIncludePathReply) error {
+	key := compilerAndLanguage{compiler: in.Compiler, language: in.Language}
+	d.includePathCache.RLock()
+	if ent, ok := d.includePathCache.paths[key]; ok {
+		d.includePathCache.RUnlock()
+		out.Paths = ent
+		return nil
+	}
+	d.includePathCache.RUnlock()
+	d.includePathCache.Lock()
+	defer d.includePathCache.Unlock()
+
+	if ent, ok := d.includePathCache.paths[key]; ok {
+		out.Paths = ent
+		return nil
+	}
+
+	paths, err := discoverDefaultSearchPath(in.Compiler, in.Language)
+	if err != nil {
+		return err
+	}
+
+	d.includePathCache.paths[key] = paths
+	out.Paths = paths
+	return nil
+}
+
+func discoverDefaultSearchPath(compiler string, lang string) ([]string, error) {
+	var exe exec.Cmd
+	exe.Path = compiler
+	exe.Args = []string{compiler, "-Wp,-v", "-x", lang, "-E", "-"}
+	var stderr bytes.Buffer
+	exe.Stderr = &stderr
+
+	if err := exe.Run(); err != nil {
+		return nil, err
+	}
+
+	var paths []string
+	for {
+		line, err := stderr.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(line, " /") {
+			dir := strings.Trim(line, " \n")
+			paths = append(paths, path.Clean(dir))
+		}
+	}
+	return paths, nil
 }

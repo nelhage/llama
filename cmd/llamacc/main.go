@@ -83,7 +83,7 @@ func remap(local, wd string) files.Mapped {
 }
 
 func buildRemotePreprocess(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) error {
-	args, err := constructRemotePreprocessInvoke(ctx, cfg, comp)
+	args, err := constructRemotePreprocessInvoke(ctx, client, cfg, comp)
 	if err != nil {
 		return err
 	}
@@ -121,13 +121,13 @@ func rewriteMF(ctx context.Context, comp *Compilation) error {
 	return os.Remove(tmpMF)
 }
 
-func constructRemotePreprocessInvoke(ctx context.Context, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
+func constructRemotePreprocessInvoke(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) (*daemon.InvokeWithFilesArgs, error) {
 	wd, err := files.WorkingDir()
 	if err != nil {
 		return nil, err
 	}
 
-	deps, err := detectDependencies(ctx, cfg, comp)
+	deps, err := detectDependencies(ctx, client, cfg, comp)
 	if err != nil {
 		return nil, fmt.Errorf("Detecting dependencies: %w", err)
 	}

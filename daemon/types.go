@@ -86,3 +86,12 @@ type TraceSpansArgs struct {
 }
 
 type TraceSpansReply struct{}
+
+type GetCompilerIncludePathArgs struct {
+	Compiler string
+	Language string
+}
+
+type GetCompilerIncludePathReply struct {
+	Paths []string
+}
