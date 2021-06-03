@@ -17,45 +17,16 @@ package main
 import (
 	"bytes"
 	"context"
-	"io"
 	"log"
 	"os"
 	"os/exec"
-	"path"
 	"strings"
 
+	"github.com/nelhage/llama/daemon"
 	"github.com/nelhage/llama/tracing"
 )
 
-func discoverDefaultSearchPath(ctx context.Context, compiler string, cfg *Config, comp *Compilation) ([]string, error) {
-	var exe exec.Cmd
-	exe.Path = compiler
-	exe.Args = []string{comp.LocalCompiler(cfg), "-Wp,-v", "-x", string(comp.Language), "-E", "-"}
-	var stderr bytes.Buffer
-	exe.Stderr = &stderr
-
-	if err := exe.Run(); err != nil {
-		return nil, err
-	}
-
-	var paths []string
-	for {
-		line, err := stderr.ReadString('\n')
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if strings.HasPrefix(line, " /") {
-			dir := strings.Trim(line, " \n")
-			paths = append(paths, path.Clean(dir))
-		}
-	}
-	return paths, nil
-}
-
-func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]string, error) {
+func detectDependencies(ctx context.Context, client *daemon.Client, cfg *Config, comp *Compilation) ([]string, error) {
 	_, span := tracing.StartSpan(ctx, "detect_dependencies")
 	defer span.End()
 
@@ -87,15 +58,17 @@ func detectDependencies(ctx context.Context, cfg *Config, comp *Compilation) ([]
 		return nil, err
 	}
 
-	syspaths, err := discoverDefaultSearchPath(ctx, ccpath, cfg, comp)
-
-	if cfg.Verbose {
-		log.Printf("Discovered local system path: %q", syspaths)
+	includePath, err := client.GetCompilerIncludePath(&daemon.GetCompilerIncludePathArgs{
+		Compiler: ccpath,
+		Language: string(comp.Language),
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	deplist, err := parseMakeDeps(deps.Bytes())
 
-	deplist = removePaths(deplist, syspaths)
+	deplist = removePaths(deplist, includePath.Paths)
 
 	span.AddField("count", len(deplist))
 	return deplist, err

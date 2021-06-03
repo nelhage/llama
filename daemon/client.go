@@ -53,3 +53,9 @@ func (c *Client) TraceSpans(in *TraceSpansArgs) (*TraceSpansReply, error) {
 	err := c.conn.Call("Daemon.TraceSpans", in, &out)
 	return &out, err
 }
+
+func (c *Client) GetCompilerIncludePath(in *GetCompilerIncludePathArgs) (*GetCompilerIncludePathReply, error) {
+	var out GetCompilerIncludePathReply
+	err := c.conn.Call("Daemon.GetCompilerIncludePath", in, &out)
+	return &out, err
+}

@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,6 +48,16 @@ type Daemon struct {
 	stats daemon.Stats
 
 	llamaccSem *semaphore.Weighted
+
+	includePathCache struct {
+		sync.RWMutex
+		paths map[compilerAndLanguage][]string
+	}
+}
+
+type compilerAndLanguage struct {
+	compiler string
+	language string
 }
 
 var ErrAlreadyRunning = errors.New("daemon already running")
@@ -104,6 +115,7 @@ func Start(ctx context.Context, args *StartArgs) error {
 
 		llamaccSem: semaphore.NewWeighted(concurrency),
 	}
+	daemon.includePathCache.paths = make(map[compilerAndLanguage][]string)
 
 	extend := make(chan struct{})
 	go func() {
