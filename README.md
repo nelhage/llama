@@ -70,6 +70,15 @@ as used by. Llama will read keys out of either.
 
 [aws-creds]: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
 
+The account whose credentials you use must have sufficient permissions.  The
+following should suffice:
+
+* AmazonEC2ContainerRegistryFullAccess
+* AmazonS3FullAccess
+* AWSCloudFormationFullAccess
+* AWSLambdaFullAccess
+* IAMFullAccess
+
 ### Configure llama's AWS resources
 
 Llama includes a [CloudFormation][cf] template and a command which
@@ -89,6 +98,18 @@ to create
 the required AWS resources. By default, it will prompt you for an AWS
 region to use; you can avoid the prompt using (e.g.) `llama -region
 us-west-2 bootstrap`.
+
+If you get an error like
+```
+Creating cloudformation stack...
+Stack created. Polling until completion...
+Stack is in rollback: ROLLBACK_IN_PROGRESS. Something went wrong.
+Stack status reason: The following resource(s) failed to create: [Repository, Bucket]. Rollback requested by user.
+```
+
+then you can go to the AWS web console, and find the relevant CloudFormation
+stack.  The event log should have more useful errors explaining what went
+wrong.  You will then need to delete the stack before retrying the bootstrap.
 
 ### Set up a GCC image
 
