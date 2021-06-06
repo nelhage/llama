@@ -161,6 +161,10 @@ system. The currently supported options include.
 |`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
 |`LLAMACC_BUILD_ID`| Assigns an ID to the build. Used for Llama's internal tracing support. |
 
+It is strongly recommended that you use absolute paths if you set
+`LLAMACC_LOCAL_CC` and `LLAMACC_LOCAL_CXX`.  Not all build systems will
+preserve `$PATH` all the way down to `llamacc`, so if you don't use
+absolute paths, you can get build failures that are difficult to diagnose.
 
 # Other features
 
