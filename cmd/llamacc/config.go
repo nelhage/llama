@@ -38,6 +38,16 @@ var DefaultConfig = Config{
 	LocalCXX: "c++",
 }
 
+// BoolConfigTrue returns whether a boolean configuration value is true.
+func BoolConfigTrue(val string) bool {
+	switch val {
+	case "", "0", "N", "n":
+		return false
+	default:
+		return true
+	}
+}
+
 func ParseConfig(env []string) Config {
 	out := DefaultConfig
 	for _, ev := range env {
@@ -52,17 +62,17 @@ func ParseConfig(env []string) Config {
 		val := ev[eq+1:]
 		switch key {
 		case "VERBOSE":
-			out.Verbose = val != ""
+			out.Verbose = BoolConfigTrue(val)
 		case "LOCAL":
-			out.Local = val != ""
+			out.Local = BoolConfigTrue(val)
 		case "REMOTE_ASSEMBLE":
-			out.RemoteAssemble = val != ""
+			out.RemoteAssemble = BoolConfigTrue(val)
 		case "FUNCTION":
 			out.Function = val
 		case "FULL_PREPROCESS":
-			out.FullPreprocess = val != ""
+			out.FullPreprocess = BoolConfigTrue(val)
 		case "LOCAL_PREPROCESS":
-			out.LocalPreprocess = val != ""
+			out.LocalPreprocess = BoolConfigTrue(val)
 		case "BUILD_ID":
 			out.BuildID = val
 		case "LOCAL_CC":
