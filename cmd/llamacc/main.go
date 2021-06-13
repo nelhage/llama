@@ -280,7 +280,10 @@ func main() {
 		log.Printf("[llamacc] compiling locally: %s (%q)", err.Error(), os.Args)
 	}
 
-	cc := cfg.LocalCC
+	// Even if we get an error from ParseCompile, we might have parsed
+	// enough options to detect the compilation language. If we didn't,
+	// we will just fall back to LocalCC anyway.
+	cc := comp.LocalCompiler(&cfg)
 	if strings.HasSuffix(os.Args[0], "cxx") || strings.HasSuffix(os.Args[0], "c++") {
 		cc = cfg.LocalCXX
 	}
