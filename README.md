@@ -160,6 +160,7 @@ system. The currently supported options include.
 |`LLAMACC_LOCAL_PREPROCESS`| Run the preprocessor locally and send preprocessed source text to the cloud, instead of individual headers. Uses less total compute but much more bandwidth; this can easily saturate your uplink on large builds. |
 |`LLAMACC_FULL_PREPROCESS`| Run the full preprocessor locally, not just `#include` processing. Disables use of GCC-specific `-fdirectives-only`|
 |`LLAMACC_BUILD_ID`| Assigns an ID to the build. Used for Llama's internal tracing support. |
+|`LLAMACC_FILTER_WARNINGS`| Filters the given comma-separated list of warnings out of all the compilations, e.g.  `LLAMACC_FILTER_WARNINGS=missing-include-dirs,packed-not-aligned`. |
 
 It is strongly recommended that you use absolute paths if you set
 `LLAMACC_LOCAL_CC` and `LLAMACC_LOCAL_CXX`.  Not all build systems will

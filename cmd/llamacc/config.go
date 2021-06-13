@@ -28,6 +28,10 @@ type Config struct {
 	LocalPreprocess bool
 	BuildID         string
 
+	// FilteredWarnings is a list of warnings that we should always filter
+	// out of the compilation
+	FilteredWarnings []string
+
 	LocalCC  string
 	LocalCXX string
 }
@@ -46,6 +50,25 @@ func BoolConfigTrue(val string) bool {
 	default:
 		return true
 	}
+}
+
+// StringArrayConfig splits a string configuration value using ","
+// as the separator and eliding empty elements.
+func StringArrayConfig(val string) []string {
+	if val == "" {
+		return nil
+	}
+
+	var a []string
+
+	for _, s := range strings.Split(val, ",") {
+		s = strings.TrimSpace(s)
+		if len(s) != 0 {
+			a = append(a, s)
+		}
+	}
+
+	return a
 }
 
 func ParseConfig(env []string) Config {
@@ -79,6 +102,8 @@ func ParseConfig(env []string) Config {
 			out.LocalCC = val
 		case "LOCAL_CXX":
 			out.LocalCXX = val
+		case "FILTER_WARNINGS":
+			out.FilteredWarnings = StringArrayConfig(val)
 		default:
 			log.Printf("llamacc: unknown env var: %s", ev)
 		}

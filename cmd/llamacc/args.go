@@ -270,13 +270,31 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 
 	args = rewriteWp(args)
 
+	specs := argSpecs
+
+	// Append specs to remove any warning flags that we are filtering.
+	for _, w := range cfg.FilteredWarnings {
+		specs = append(specs,
+			argSpec{
+				flag:   "-W" + w,
+				action: func(*Compilation, string) (filterWhere, error) { return filterBoth, nil },
+				hasArg: false,
+			},
+			argSpec{
+				flag:   "-Wno-" + w,
+				action: func(*Compilation, string) (filterWhere, error) { return filterBoth, nil },
+				hasArg: false,
+			},
+		)
+	}
+
 	i := 0
 	for i < len(args) {
 		arg := args[i]
 		i++
 		if strings.HasPrefix(arg, "-") {
 			found := false
-			for _, spec := range argSpecs {
+			for _, spec := range specs {
 				if !strings.HasPrefix(arg, spec.flag) {
 					continue
 				}
