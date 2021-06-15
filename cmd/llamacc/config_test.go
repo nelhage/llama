@@ -29,3 +29,11 @@ func TestBoolConfigTrue(t *testing.T) {
 		assert.False(t, BoolConfigTrue(v))
 	}
 }
+
+func TestStringArrayConfig(t *testing.T) {
+	assert.Equal(t, []string(nil), StringArrayConfig(""))
+	assert.Equal(t, []string{"b", "a"}, StringArrayConfig("b,a"))
+	assert.Equal(t, []string{"b", "a"}, StringArrayConfig("b,, ,a"))
+	assert.Equal(t, []string{"b", "a"}, StringArrayConfig("b  ,\t a"))
+	assert.Equal(t, []string(nil), StringArrayConfig(",,,,"))
+}
