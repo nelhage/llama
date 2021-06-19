@@ -188,6 +188,16 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 		return fmt.Errorf("find %s: %w", comp.LocalCompiler(cfg), err)
 	}
 
+	tmp, err := ioutil.TempFile("", fmt.Sprintf("llamacc-*%s", comp.LanguageExt()))
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		os.Remove(tmp.Name())
+		tmp.Close()
+	}()
+
 	var preprocessed bytes.Buffer
 	{
 		var preprocessor exec.Cmd
@@ -197,8 +207,9 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 		preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
 		if !cfg.FullPreprocess {
 			preprocessor.Args = append(preprocessor.Args, "-fdirectives-only")
+
 		}
-		preprocessor.Args = append(preprocessor.Args, "-E", "-o", "-", comp.Input)
+		preprocessor.Args = append(preprocessor.Args, "-E", "-o", tmp.Name(), comp.Input)
 		preprocessor.Stdout = &preprocessed
 		preprocessor.Stderr = os.Stderr
 		if cfg.Verbose {
@@ -212,6 +223,9 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 
 	args := daemon.InvokeWithFilesArgs{
 		Function: cfg.Function,
+		Files: []files.Mapped{
+			remap(tmp.Name(), wd),
+		},
 		Outputs: []files.Mapped{
 			{
 				Local:  files.LocalFile{Path: path.Join(wd, comp.Output)},
@@ -226,7 +240,7 @@ func buildLocalPreprocess(ctx context.Context, client *daemon.Client, cfg *Confi
 	if !cfg.FullPreprocess {
 		args.Args = append(args.Args, "-fdirectives-only", "-fpreprocessed")
 	}
-	args.Args = append(args.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, "-")
+	args.Args = append(args.Args, "-x", comp.PreprocessedLanguage, "-o", comp.Output, toRemote(tmp.Name(), wd))
 
 	out, err := client.InvokeWithFiles(&args)
 	if err != nil {

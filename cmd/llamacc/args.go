@@ -89,6 +89,17 @@ func (c *Compilation) RemoteCompiler(cfg *Config) string {
 	return "cc"
 }
 
+// LanguageExt returns the file extension for the current language.
+func (c *Compilation) LanguageExt() string {
+	for k, v := range extLangs {
+		if v == c.Language {
+			return k
+		}
+	}
+
+	panic("unknown language extension")
+}
+
 type Flags struct {
 	MD  bool
 	MMD bool
