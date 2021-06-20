@@ -17,6 +17,7 @@ package store
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/nelhage/llama/protocol"
 )
@@ -30,7 +31,9 @@ type GetRequest struct {
 var ErrNotExists = errors.New("Requested object does not exist")
 
 type Store interface {
-	Store(ctx context.Context, obj []byte) (string, error)
+	StoreBytes(ctx context.Context, obj []byte) (string, error)
+	Store(ctx context.Context, obj io.Reader) (string, error)
+
 	GetObjects(ctx context.Context, gets []GetRequest)
 	FetchAWSUsage(u *protocol.UsageMetrics)
 }

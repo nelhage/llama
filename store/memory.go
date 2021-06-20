@@ -17,6 +17,8 @@ package store
 import (
 	"context"
 	"encoding/hex"
+	"io"
+	"io/ioutil"
 
 	"github.com/nelhage/llama/protocol"
 	"golang.org/x/crypto/blake2b"
@@ -26,7 +28,16 @@ type inMemory struct {
 	objects map[string][]byte
 }
 
-func (s *inMemory) Store(ctx context.Context, obj []byte) (string, error) {
+func (s *inMemory) Store(ctx context.Context, obj io.Reader) (string, error) {
+	buf, err := ioutil.ReadAll(obj)
+	if err != nil {
+		return "", err
+	}
+
+	return s.StoreBytes(ctx, buf)
+}
+
+func (s *inMemory) StoreBytes(ctx context.Context, obj []byte) (string, error) {
 	sha := blake2b.Sum256(obj)
 	id := hex.EncodeToString(sha[:])
 	s.objects[id] = append([]byte(nil), obj...)
