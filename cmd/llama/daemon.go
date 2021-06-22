@@ -42,6 +42,7 @@ type DaemonCommand struct {
 	detach           bool
 	idleTimeout      time.Duration
 	ccConcurrency    int64
+	memProf          string
 }
 
 func (*DaemonCommand) Name() string     { return "daemon" }
@@ -61,6 +62,7 @@ func (c *DaemonCommand) SetFlags(flags *flag.FlagSet) {
 	flags.StringVar(&c.path, "path", cli.SocketPath(), "Path to daemon socket")
 	flags.DurationVar(&c.idleTimeout, "idle-timeout", 10*time.Minute, "Idle timeout")
 	flags.Int64Var(&c.ccConcurrency, "cc-concurrency", 0, "Configure llamacc concurrency limit")
+	flags.StringVar(&c.memProf, "mem-profile", "", "Dump daemon memory profile")
 }
 
 func raiseRlimits() {
@@ -175,6 +177,17 @@ func (c *DaemonCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...in
 				}
 				log.Fatalf("starting daemon: %s", err)
 			}
+		}
+	} else if c.memProf != "" {
+		client, err := daemon.Dial(ctx, c.path)
+		defer client.Close()
+		if err != nil {
+			log.Fatalf("Connecting to daemon: %s", err.Error())
+		}
+
+		_, err = client.MemProfile(&daemon.MemProfileArgs{Path: c.memProf})
+		if err != nil {
+			log.Fatalf("dump profile: %s", err.Error())
 		}
 	} else {
 		log.Fatalf("Must pass an action")

@@ -59,3 +59,9 @@ func (c *Client) GetCompilerIncludePath(in *GetCompilerIncludePathArgs) (*GetCom
 	err := c.conn.Call("Daemon.GetCompilerIncludePath", in, &out)
 	return &out, err
 }
+
+func (c *Client) MemProfile(in *MemProfileArgs) (*MemProfileReply, error) {
+	var out MemProfileReply
+	err := c.conn.Call("Daemon.MemProfile", in, &out)
+	return &out, err
+}

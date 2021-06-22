@@ -95,3 +95,10 @@ type GetCompilerIncludePathArgs struct {
 type GetCompilerIncludePathReply struct {
 	Paths []string
 }
+
+type MemProfileArgs struct {
+	Path string
+}
+
+type MemProfileReply struct {
+}

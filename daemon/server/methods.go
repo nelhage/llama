@@ -22,6 +22,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -296,4 +298,17 @@ func discoverDefaultSearchPath(compiler string, lang string) ([]string, error) {
 		}
 	}
 	return paths, nil
+}
+
+func (d *Daemon) MemProfile(in *daemon.MemProfileArgs, out *daemon.MemProfileReply) error {
+	f, err := os.Create(in.Path)
+	if err != nil {
+		return err
+	}
+	defer f.Close() // error handling omitted for example
+	runtime.GC()    // get up-to-date statistics
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		return err
+	}
+	return nil
 }
