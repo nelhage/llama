@@ -44,7 +44,7 @@ func (s *inMemory) GetObjects(ctx context.Context, gets []GetRequest) {
 	}
 }
 
-func (s *inMemory) FetchAWSUsage(u *protocol.UsageMetrics) {}
+func (s *inMemory) FetchAWSUsage(u *protocol.StoreUsage) {}
 
 func InMemory() Store {
 	return &inMemory{

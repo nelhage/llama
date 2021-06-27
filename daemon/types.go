@@ -71,7 +71,13 @@ type Stats struct {
 	OtherErrors    uint64
 	ExitStatuses   [256]uint64
 
-	Usage protocol.UsageMetrics
+	Usage AWSUsage
+}
+
+type AWSUsage struct {
+	Lambda   protocol.LambdaUsage
+	LocalS3  protocol.StoreUsage
+	RemoteS3 protocol.StoreUsage
 }
 
 type StatsArgs struct {
