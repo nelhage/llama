@@ -83,13 +83,13 @@ func init() {
 	}
 }
 
-func (s *Store) FetchAWSUsage(u *protocol.UsageMetrics) {
+func (s *Store) FetchAWSUsage(u *protocol.StoreUsage) {
 	s.metricsMu.Lock()
 	defer s.metricsMu.Unlock()
-	u.S3_Write_Requests += s.metrics.WriteRequests
-	u.S3_Read_Requests += s.metrics.ReadRequests
-	u.S3_Xfer_In += s.metrics.XferIn
-	u.S3_Xfer_Out += s.metrics.XferOut
+	u.Write_Requests += s.metrics.WriteRequests
+	u.Read_Requests += s.metrics.ReadRequests
+	u.Xfer_In += s.metrics.XferIn
+	u.Xfer_Out += s.metrics.XferOut
 	s.metrics = usageMetrics{}
 }
 

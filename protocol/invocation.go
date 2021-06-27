@@ -39,14 +39,22 @@ type InvocationResponse struct {
 	Times       Timing         `json:"times"`
 }
 
+type StoreUsage struct {
+	Write_Requests uint64
+	Read_Requests  uint64
+	Xfer_In        uint64
+	Xfer_Out       uint64
+}
+
+type LambdaUsage struct {
+	Millis    uint64
+	MB_Millis uint64
+	Requests  uint64
+}
+
 type UsageMetrics struct {
-	Lambda_Millis     uint64
-	Lambda_MB_Millis  uint64
-	Lambda_Requests   uint64
-	S3_Write_Requests uint64
-	S3_Read_Requests  uint64
-	S3_Xfer_In        uint64
-	S3_Xfer_Out       uint64
+	Lambda LambdaUsage
+	S3     StoreUsage
 }
 
 type Timing struct {

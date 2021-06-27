@@ -127,7 +127,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 
 	t_invoke := time.Now()
 
-	atomic.AddUint64(&d.stats.Usage.Lambda_Requests, 1)
+	atomic.AddUint64(&d.stats.Usage.Lambda.Requests, 1)
 	repl, invokeErr := llama.Invoke(ctx, d.lambda, d.store, &args)
 	if invokeErr != nil {
 		sb.AddField("error", fmt.Sprintf("invoke: %s", invokeErr.Error()))
@@ -145,14 +145,12 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 	t_fetch := time.Now()
 
 	atomic.AddUint64(&d.stats.ExitStatuses[repl.Response.ExitStatus&0xff], 1)
-	atomic.AddUint64(&d.stats.Usage.Lambda_MB_Millis, repl.Response.Usage.Lambda_MB_Millis)
-	atomic.AddUint64(&d.stats.Usage.Lambda_Millis, repl.Response.Usage.Lambda_Millis)
-	atomic.AddUint64(&d.stats.Usage.S3_Read_Requests, repl.Response.Usage.S3_Read_Requests)
-	atomic.AddUint64(&d.stats.Usage.S3_Write_Requests, repl.Response.Usage.S3_Write_Requests)
-	atomic.AddUint64(&d.stats.Usage.S3_Xfer_In, repl.Response.Usage.S3_Xfer_In)
-
-	// Transfer out from S3 to EC2 is free, so we deliberately do
-	// _not_ accumulate S3_Xfer_Out here.
+	atomic.AddUint64(&d.stats.Usage.Lambda.MB_Millis, repl.Response.Usage.Lambda.MB_Millis)
+	atomic.AddUint64(&d.stats.Usage.Lambda.Millis, repl.Response.Usage.Lambda.Millis)
+	atomic.AddUint64(&d.stats.Usage.RemoteS3.Read_Requests, repl.Response.Usage.S3.Read_Requests)
+	atomic.AddUint64(&d.stats.Usage.RemoteS3.Write_Requests, repl.Response.Usage.S3.Write_Requests)
+	atomic.AddUint64(&d.stats.Usage.RemoteS3.Xfer_In, repl.Response.Usage.S3.Xfer_In)
+	atomic.AddUint64(&d.stats.Usage.RemoteS3.Xfer_Out, repl.Response.Usage.S3.Xfer_Out)
 
 	var gets []store.GetRequest
 
@@ -218,7 +216,7 @@ func (d *Daemon) InvokeWithFiles(in *daemon.InvokeWithFilesArgs, out *daemon.Inv
 }
 
 func (d *Daemon) GetDaemonStats(in *daemon.StatsArgs, out *daemon.StatsReply) error {
-	d.store.FetchAWSUsage(&d.stats.Usage)
+	d.store.FetchAWSUsage(&d.stats.Usage.LocalS3)
 
 	// TODO: We should really read this a field-at-a-time
 	// using `atomic.LoadUint64`, although I don't believe

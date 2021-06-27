@@ -32,7 +32,7 @@ var ErrNotExists = errors.New("Requested object does not exist")
 type Store interface {
 	Store(ctx context.Context, obj []byte) (string, error)
 	GetObjects(ctx context.Context, gets []GetRequest)
-	FetchAWSUsage(u *protocol.UsageMetrics)
+	FetchAWSUsage(u *protocol.StoreUsage)
 }
 
 func Get(ctx context.Context, st Store, id string) ([]byte, error) {

@@ -78,10 +78,10 @@ func (r *Runtime) RunOne(ctx context.Context, job *protocol.InvocationSpec) (*pr
 		if resp == nil {
 			return
 		}
-		r.store.FetchAWSUsage(&resp.Usage)
+		r.store.FetchAWSUsage(&resp.Usage.S3)
 		mem, _ := strconv.ParseUint(os.Getenv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"), 10, 64)
-		resp.Usage.Lambda_Millis = uint64((time.Since(start) + 3*time.Millisecond/2 - 1).Milliseconds())
-		resp.Usage.Lambda_MB_Millis = resp.Usage.Lambda_Millis * mem
+		resp.Usage.Lambda.Millis = uint64((time.Since(start) + 3*time.Millisecond/2 - 1).Milliseconds())
+		resp.Usage.Lambda.MB_Millis = resp.Usage.Lambda.Millis * mem
 	}()
 
 	if job.Trace != nil {
