@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/url"
@@ -133,9 +134,13 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	}, nil
 }
 
-func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
+// StoreCompressedObj takes a compressed data object and stores it in S3,
+// returning an object ID.
+func (s *Store) StoreCompressedObj(ctx context.Context, obj []byte) (string, error) {
 	ctx, span := tracing.StartSpan(ctx, "s3.store")
 	defer span.End()
+
+	// The object ID is the hash of the compressed object.
 	id := storeutil.HashObject(obj) + ":zstd"
 
 	span.AddField("object_id", id)
@@ -170,21 +175,46 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 		}
 	}
 
-	compressed := encode.EncodeAll(obj, nil)
-	span.AddField("s3.write_bytes", len(compressed))
+	span.AddField("s3.write_bytes", len(obj))
 
 	usage.WriteRequests += 1
 	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
-		Body:   bytes.NewReader(compressed),
+		Body:   bytes.NewReader(obj),
 		Bucket: &s.url.Host,
 		Key:    key,
 	})
 	if err != nil {
 		return "", err
 	}
+
 	s.metrics.XferIn += uint64(len(obj))
 	upload.Complete()
 	return id, nil
+}
+
+func (s *Store) Store(ctx context.Context, obj io.Reader) (string, error) {
+	compressed := bytes.Buffer{}
+
+	encoder, err := zstd.NewWriter(&compressed)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := io.Copy(encoder, obj); err != nil {
+		encoder.Close()
+		return "", err
+	}
+
+	if err := encoder.Close(); err != nil {
+		return "", err
+	}
+
+	return s.StoreCompressedObj(ctx, compressed.Bytes())
+}
+
+func (s *Store) StoreBytes(ctx context.Context, obj []byte) (string, error) {
+	compressed := encode.EncodeAll(obj, nil)
+	return s.StoreCompressedObj(ctx, compressed)
 }
 
 const getConcurrency = 32
@@ -226,9 +256,11 @@ func (s *Store) decompress(id string, body []byte) (string, []byte, error) {
 			return expectHash, nil, fmt.Errorf("%q: unknown compression %s", id, coding)
 		}
 		var err error
+		inbytes := len(body)
 		body, err = decode.DecodeAll(body, nil)
 		if err != nil {
-			return expectHash, nil, fmt.Errorf("%q: decoding:  %w", id, err)
+			return expectHash, nil,
+				fmt.Errorf("%q: decoding %d %s bytes: %w", id, inbytes, coding, err)
 		}
 	}
 	return expectHash, body, nil
@@ -247,15 +279,18 @@ func (s *Store) getOne(ctx context.Context, id string, usage *usageMetrics) ([]b
 		}
 	}
 
+	// The ID is generated from the compressed representation.
+	gotHash := storeutil.HashObject(body)
+
 	hash, body, err := s.decompress(id, body)
 	if err != nil {
 		return nil, err
 	}
 
-	gotHash := storeutil.HashObject(body)
 	if gotHash != hash {
 		return nil, fmt.Errorf("object store mismatch: got csum=%s expected %s", gotHash, id)
 	}
+
 	u := s.seen.StartUpload(id)
 	u.Complete()
 

@@ -79,7 +79,7 @@ func NewBlob(ctx context.Context, store store.Store, bytes []byte) (*protocol.Bl
 	if base64.StdEncoding.EncodedLen(len(bytes)) < protocol.MaxInlineBlob {
 		return &protocol.Blob{Bytes: bytes}, nil
 	}
-	id, err := store.Store(ctx, bytes)
+	id, err := store.StoreBytes(ctx, bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -100,16 +100,14 @@ func ReadFile(ctx context.Context, store store.Store, path string) (*protocol.Fi
 	if fi.Mode().IsDir() {
 		return nil, errors.New("ReadFile: got directory")
 	}
-	bytes, err := ioutil.ReadAll(fh)
+
+	id, err := store.Store(ctx, fh)
 	if err != nil {
 		return nil, err
 	}
-	blob, err := NewBlob(ctx, store, bytes)
-	if err != nil {
-		return nil, err
-	}
+
 	return &protocol.File{
-		Blob: *blob,
+		Blob: protocol.Blob{Ref: id},
 		Mode: fi.Mode(),
 	}, nil
 }
