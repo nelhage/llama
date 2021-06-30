@@ -37,11 +37,7 @@ func detectDependencies(ctx context.Context, client *daemon.Client, cfg *Config,
 	}
 	preprocessor.Path = ccpath
 	preprocessor.Args = []string{comp.LocalCompiler(cfg)}
-	preprocessor.Args = append(preprocessor.Args, comp.UnknownArgs...)
-	for _, opt := range comp.Defs {
-		preprocessor.Args = append(preprocessor.Args, opt.Opt)
-		preprocessor.Args = append(preprocessor.Args, opt.Def)
-	}
+	preprocessor.Args = append(preprocessor.Args, comp.LocalArgs...)
 	for _, opt := range comp.Includes {
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
 		preprocessor.Args = append(preprocessor.Args, opt.Path)

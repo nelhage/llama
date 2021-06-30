@@ -148,14 +148,13 @@ func constructRemotePreprocessInvoke(ctx context.Context, client *daemon.Client,
 	}
 
 	args.Args = []string{comp.RemoteCompiler(cfg)}
+	args.Args = append(args.Args, comp.RemoteArgs...)
 
 	args.Args = append(args.Args, "-I", toRemote(".", wd))
 	for _, inc := range comp.Includes {
 		args.Args = append(args.Args, inc.Opt, toRemote(inc.Path, wd))
 	}
-	for _, def := range comp.Defs {
-		args.Args = append(args.Args, def.Opt, def.Def)
-	}
+
 	args.Args = append(args.Args, "-c")
 	args.Args = append(args.Args, "-o", toRemote(comp.Output, wd))
 	args.Args = append(args.Args, toRemote(comp.Input, wd))
@@ -171,7 +170,6 @@ func constructRemotePreprocessInvoke(ctx context.Context, client *daemon.Client,
 	if comp.Flag.MF != "" {
 		args.Args = append(args.Args, "-MF", toRemote(comp.Flag.MF+".tmp", wd))
 	}
-	args.Args = append(args.Args, comp.UnknownArgs...)
 	if cfg.Verbose {
 		log.Printf("[llamacc] compiling remotely: %#v", args)
 	}
