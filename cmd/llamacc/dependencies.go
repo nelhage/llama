@@ -46,7 +46,9 @@ func detectDependencies(ctx context.Context, client *daemon.Client, cfg *Config,
 		preprocessor.Args = append(preprocessor.Args, opt.Opt)
 		preprocessor.Args = append(preprocessor.Args, opt.Path)
 	}
-	preprocessor.Args = append(preprocessor.Args, "-M", "-MF", "-", comp.Input)
+	// Use /dev/stdout instead of - because old GCC verions don't
+	// understand `-`. See #50
+	preprocessor.Args = append(preprocessor.Args, "-M", "-MF", "/dev/stdout", comp.Input)
 	var deps bytes.Buffer
 	preprocessor.Stdout = &deps
 	preprocessor.Stderr = os.Stderr
