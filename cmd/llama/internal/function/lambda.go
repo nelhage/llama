@@ -119,6 +119,9 @@ func waitForFunction(ctx context.Context, client *lambda.Lambda, config *functio
 			log.Printf("Waiting for client: %s...", err.Error())
 			continue
 		}
+		if out.Configuration.State != nil && *out.Configuration.State == lambda.StateFailed {
+			return fmt.Errorf("Function update failed: %s", *out.Configuration.StateReason)
+		}
 		if out.Configuration.LastUpdateStatus == nil {
 			continue
 		}
