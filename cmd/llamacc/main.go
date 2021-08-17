@@ -149,9 +149,15 @@ func constructRemotePreprocessInvoke(ctx context.Context, client *daemon.Client,
 
 	args.Args = []string{comp.RemoteCompiler(cfg)}
 
-	args.Args = append(args.Args, "-I", toRemote(".", wd))
+	appendInclude := func(opt, local string) {
+		mapped := toRemote(local, wd)
+		args.Args = append(args.Args, opt, mapped)
+		args.Args = append(args.Args, fmt.Sprintf("-fdebug-prefix-map=%s=%s", mapped, local))
+	}
+
+	appendInclude("-I", ".")
 	for _, inc := range comp.Includes {
-		args.Args = append(args.Args, inc.Opt, toRemote(inc.Path, wd))
+		appendInclude(inc.Opt, inc.Path)
 	}
 	for _, def := range comp.Defs {
 		args.Args = append(args.Args, def.Opt, def.Def)
