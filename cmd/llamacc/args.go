@@ -108,6 +108,8 @@ type Flags struct {
 
 	C bool
 	S bool
+
+	SplitDwarf bool
 }
 
 func smellsLikeInput(arg string) bool {
@@ -222,6 +224,10 @@ var argSpecs = []argSpec{
 	includeArg("-include"),
 	{"-nostdinc", func(c *Compilation, _ string) (filterWhere, error) {
 		return filterRemote, nil
+	}, false},
+	{"-gsplit-dwarf", func(c *Compilation, _ string) (filterWhere, error) {
+		c.Flag.SplitDwarf = true
+		return filterLocal, nil
 	}, false},
 }
 

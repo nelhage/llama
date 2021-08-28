@@ -149,6 +149,11 @@ func constructRemotePreprocessInvoke(ctx context.Context, client *daemon.Client,
 
 	args.Args = []string{comp.RemoteCompiler(cfg)}
 
+	if comp.Flag.SplitDwarf {
+		args.Outputs = args.Outputs.Append(remap(replaceExt(comp.Output, ".dwo"), wd))
+		args.Args = append(args.Args, "-gsplit-dwarf")
+	}
+
 	appendInclude := func(opt, local string) {
 		mapped := toRemote(local, wd)
 		args.Args = append(args.Args, opt, mapped)
