@@ -38,7 +38,8 @@ pronounced on smaller workstations.
 - A Linux x86_64 machine. Llama only supports that platform for
   now. Cross-compilation should in theory be possible but is not
   implemented.
-- The [Go compiler](https://golang.org/dl/). Llama is tested on v1.16 but older versions may work.
+- The [Go compiler](https://golang.org/dl/). Llama is tested on v1.16
+  but older versions may work.
 - An [AWS account](https://aws.amazon.com/)
 
 ### Install llama
@@ -46,7 +47,7 @@ pronounced on smaller workstations.
 You'll need to install Llama from source. You can run
 
 ```
-go get -u github.com/nelhage/llama/cmd/...
+go install github.com/nelhage/llama/cmd/...@latest
 ```
 
 or clone this repository and run
