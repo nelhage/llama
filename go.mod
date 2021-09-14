@@ -18,4 +18,5 @@ require (
 	golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f
 )
 
-replace github.com/fraugster/parquet-go v0.3.0 => github.com/nelhage/parquet-go v0.3.1-0.20210416231405-1e924319d941
+// Uncomment this to work around https://github.com/fraugster/parquet-go/pull/28
+// replace github.com/fraugster/parquet-go v0.3.0 => github.com/nelhage/parquet-go v0.3.1-0.20210416231405-1e924319d941
