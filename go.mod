@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/aws/aws-lambda-go v1.20.0
 	github.com/aws/aws-sdk-go v1.38.13
-	github.com/fraugster/parquet-go v0.3.0
+	github.com/fraugster/parquet-go v0.4.0
 	github.com/gofrs/flock v0.8.0
 	github.com/golang/snappy v0.0.2
 	github.com/google/subcommands v1.2.0
@@ -17,6 +17,3 @@ require (
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 	golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f
 )
-
-// Uncomment this to work around https://github.com/fraugster/parquet-go/pull/28
-// replace github.com/fraugster/parquet-go v0.3.0 => github.com/nelhage/parquet-go v0.3.1-0.20210416231405-1e924319d941
