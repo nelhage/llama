@@ -296,11 +296,16 @@ func main() {
 			if ex, ok := err.(*exec.ExitError); ok {
 				os.Exit(ex.ExitCode())
 			}
-			fmt.Fprintf(os.Stderr, "Running llamacc: %s\n", err.Error())
-			os.Exit(1)
+			if strings.Contains(err.Error(), "timed out") {
+				goto RetryLocal
+			} else {
+				fmt.Fprintf(os.Stderr, "Running llamacc: %s\n", err.Error())
+				os.Exit(1)
+			}
 		}
 		os.Exit(0)
 	}
+RetryLocal:
 	if cfg.Verbose {
 		log.Printf("[llamacc] compiling locally: %s (%q)", err.Error(), os.Args)
 	}
