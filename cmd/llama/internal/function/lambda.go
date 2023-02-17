@@ -66,7 +66,7 @@ func createOrUpdateFunction(ctx context.Context, g *cli.GlobalState, cfg *functi
 
 	_, err := client.CreateFunction(args)
 	if err == nil {
-		return waitForFunction(ctx, client, cfg)
+		return waitForFunction(ctx, client, cfg, "Creating")
 	}
 	if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 409 {
 		return updateFunction(ctx, g, cfg)
@@ -95,6 +95,9 @@ func updateFunction(ctx context.Context, g *cli.GlobalState, cfg *functionConfig
 	if _, err := client.UpdateFunctionConfiguration(args); err != nil {
 		return err
 	}
+	if err := waitForFunction(ctx, client, cfg, "Updating"); err != nil {
+		return err
+	}
 
 	if cfg.tag != "" {
 		codeArgs := &lambda.UpdateFunctionCodeInput{
@@ -104,14 +107,15 @@ func updateFunction(ctx context.Context, g *cli.GlobalState, cfg *functionConfig
 		if _, err := client.UpdateFunctionCode(codeArgs); err != nil {
 			return err
 		}
-
+		return waitForFunction(ctx, client, cfg, "Deploying")
 	}
-	return waitForFunction(ctx, client, cfg)
+
+	return nil
 }
 
-func waitForFunction(ctx context.Context, client *lambda.Lambda, config *functionConfig) error {
+func waitForFunction(ctx context.Context, client *lambda.Lambda, config *functionConfig, prompt string) error {
 	args := &lambda.GetFunctionInput{FunctionName: &config.name}
-	log.Printf("Update complete, waiting for function %s...", config.name)
+	log.Printf("%s function %s...", prompt, config.name)
 	for {
 		time.Sleep(3 * time.Second)
 		out, err := client.GetFunction(args)
