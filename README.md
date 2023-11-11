@@ -77,7 +77,7 @@ following should suffice:
 * AmazonEC2ContainerRegistryFullAccess
 * AmazonS3FullAccess
 * AWSCloudFormationFullAccess
-* AWSLambdaFullAccess
+* AWSLambda_FullAccess
 * IAMFullAccess
 
 ### Configure llama's AWS resources
