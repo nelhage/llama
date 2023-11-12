@@ -26,22 +26,18 @@ jobs:
           ./scripts/dev/check-license
   build-image:
     runs-on: ubuntu-latest
-    env:
-      GHCR_TOKEN: ${{secrets.GHCR_TOKEN}}
     steps:
       - uses: actions/checkout@v2
       - name: Login to GitHub Container Registry
-        if: env.GHCR_TOKEN
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build docker image
         run: |
           docker build -t "ghcr.io/nelhage/llama:$GITHUB_SHA" .
       - name: Push docker image
-        if: env.GHCR_TOKEN
         run: |
           docker push "ghcr.io/nelhage/llama:$GITHUB_SHA"
       - name: Tag "latest" docker container
