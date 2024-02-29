@@ -26,6 +26,7 @@ type Config struct {
 	FullPreprocess  bool
 	Function        string
 	LocalPreprocess bool
+	LocalFallback	bool
 	BuildID         string
 
 	// FilteredWarnings is a list of warnings that we should always filter
@@ -102,6 +103,8 @@ func ParseConfig(env []string) Config {
 			out.LocalCC = val
 		case "LOCAL_CXX":
 			out.LocalCXX = val
+		case "LOCAL_FALLBACK":
+			out.LocalFallback = BoolConfigTrue(val)
 		case "FILTER_WARNINGS":
 			out.FilteredWarnings = StringArrayConfig(val)
 		default:
