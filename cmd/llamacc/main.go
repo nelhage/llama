@@ -296,7 +296,9 @@ func main() {
 			if ex, ok := err.(*exec.ExitError); ok {
 				os.Exit(ex.ExitCode())
 			}
-			if strings.Contains(err.Error(), "timed out") {
+			if cfg.LocalFallback {
+				goto RetryLocal
+			} else if strings.Contains(err.Error(), "timed out") {
 				goto RetryLocal
 			} else {
 				fmt.Fprintf(os.Stderr, "Running llamacc: %s\n", err.Error())
