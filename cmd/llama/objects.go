@@ -49,7 +49,7 @@ func (c *StoreCommand) Execute(ctx context.Context, flag *flag.FlagSet, _ ...int
 			return subcommands.ExitFailure
 		}
 
-		id, err := global.MustStore().Store(ctx, bytes)
+		id, err := global.MustStore().StoreBytes(ctx, bytes)
 		if err != nil {
 			log.Printf("storing %q: %v\n", arg, err)
 			return subcommands.ExitFailure

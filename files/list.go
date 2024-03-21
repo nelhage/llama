@@ -17,7 +17,6 @@ package files
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -76,35 +75,38 @@ func (f List) Append(mapped ...Mapped) List {
 
 func uploadWorker(ctx context.Context, store store.Store, jobs <-chan Mapped, out chan<- *protocol.FileAndPath) {
 	for file := range jobs {
-		data, mode, err := func() ([]byte, os.FileMode, error) {
-			if file.Local.Bytes != nil {
-				if file.Local.Path != "" {
-					panic("MappedFile: got both Path and Bytes")
-				}
-				return file.Local.Bytes, file.Local.Mode, nil
-			} else {
-				data, err := ioutil.ReadFile(file.Local.Path)
-				if err != nil {
-					return nil, 0, fmt.Errorf("reading file %q: %w", file.Local.Path, err)
-				}
-				st, err := os.Stat(file.Local.Path)
-				if err != nil {
-					return nil, 0, fmt.Errorf("stat %q: %w", file.Local.Path, err)
-				}
-				return data, st.Mode(), nil
-			}
-		}()
-		var blob *protocol.Blob
-		if err == nil {
-			blob, err = files.NewBlob(ctx, store, data)
+		if file.Local.Bytes != nil && file.Local.Path != "" {
+			panic("MappedFile: got both Path and Bytes")
 		}
-		if err != nil {
-			blob = &protocol.Blob{Err: err.Error()}
-		}
-		out <- &protocol.FileAndPath{
-			File: protocol.File{Blob: *blob, Mode: mode},
+
+		result := protocol.FileAndPath{
+			File: protocol.File{
+				Mode: file.Local.Mode,
+			},
 			Path: file.Remote,
 		}
+
+		if file.Local.Path != "" {
+			pfile, err := files.ReadFile(ctx, store, file.Local.Path)
+			switch err {
+			case nil:
+				result.File = *pfile
+			default:
+				result.File.Blob = protocol.Blob{Err: err.Error()}
+			}
+		}
+
+		if file.Local.Bytes != nil {
+			blob, err := files.NewBlob(ctx, store, file.Local.Bytes)
+			switch err {
+			case nil:
+				result.File.Blob = *blob
+			default:
+				result.File.Blob = protocol.Blob{Err: err.Error()}
+			}
+		}
+
+		out <- &result
 	}
 }
 
