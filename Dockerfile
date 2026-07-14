@@ -1,4 +1,4 @@
-FROM golang:1.15-alpine
+FROM golang:1.24-alpine
 RUN mkdir /src
 RUN apk update && apk add ca-certificates && rm -rf /var/cache/apk/*
 WORKDIR /src

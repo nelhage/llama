@@ -17,6 +17,7 @@ package s3store
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -26,11 +27,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/klauspost/compress/zstd"
 	"github.com/nelhage/llama/protocol"
 	"github.com/nelhage/llama/store"
@@ -47,10 +48,9 @@ type Options struct {
 }
 
 type Store struct {
-	opts    Options
-	session *session.Session
-	s3      *s3.S3
-	url     *url.URL
+	opts Options
+	s3   *s3.Client
+	url  *url.URL
 
 	seen storeutil.Cache
 	disk *diskcache.Cache
@@ -114,10 +114,16 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	if u.Scheme != "s3" {
 		return nil, fmt.Errorf("Object store: %q: unsupported scheme %s", address, u.Scheme)
 	}
-	svc := s3.New(s, aws.NewConfig().WithS3DisableContentMD5Validation(true))
-	svc.Handlers.Sign.PushFront(func(r *request.Request) {
-		r.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
-	})
+
+	var loadOpts []func(*config.LoadOptions) error
+	if s != nil && s.Config != nil && s.Config.Region != nil && *s.Config.Region != "" {
+		loadOpts = append(loadOpts, config.WithRegion(*s.Config.Region))
+	}
+	cfg, err := config.LoadDefaultConfig(context.TODO(), loadOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("loading AWS config: %w", err)
+	}
+	svc := s3.NewFromConfig(cfg)
 
 	var disk *diskcache.Cache
 	if opts.DiskCacheBytes > 0 {
@@ -125,11 +131,10 @@ func FromSessionAndOptions(s *session.Session, address string, opts Options) (*S
 	}
 
 	return &Store{
-		opts:    opts,
-		session: s,
-		s3:      svc,
-		url:     u,
-		disk:    disk,
+		opts: opts,
+		s3:   svc,
+		url:  u,
+		disk: disk,
 	}, nil
 }
 
@@ -154,8 +159,8 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 
 	if !s.opts.DisableHeadCheck {
 		usage.ReadRequests += 1
-		_, err = s.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: &s.url.Host,
+		_, err = s.s3.HeadObject(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(s.url.Host),
 			Key:    key,
 		})
 		if err == nil {
@@ -163,7 +168,8 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 			span.AddField("s3.exists", true)
 			return id, nil
 		}
-		if reqerr, ok := err.(awserr.RequestFailure); ok && reqerr.StatusCode() == 404 {
+		var respErr *awshttp.ResponseError
+		if errors.As(err, &respErr) && respErr.HTTPStatusCode() == 404 {
 			// 404 not found -- do the upload
 		} else {
 			return "", err
@@ -174,9 +180,9 @@ func (s *Store) Store(ctx context.Context, obj []byte) (string, error) {
 	span.AddField("s3.write_bytes", len(compressed))
 
 	usage.WriteRequests += 1
-	_, err = s.s3.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	_, err = s.s3.PutObject(ctx, &s3.PutObjectInput{
 		Body:   bytes.NewReader(compressed),
-		Bucket: &s.url.Host,
+		Bucket: aws.String(s.url.Host),
 		Key:    key,
 	})
 	if err != nil {
@@ -194,8 +200,8 @@ func (s *Store) getFromS3(ctx context.Context, id string, usage *usageMetrics) (
 	defer span.End()
 
 	atomic.AddUint64(&usage.ReadRequests, 1)
-	resp, err := s.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
-		Bucket: &s.url.Host,
+	resp, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.url.Host),
 		Key:    aws.String(path.Join(s.url.Path, id)),
 	})
 	if err != nil {
