@@ -57,7 +57,6 @@ type Compilation struct {
 	PreprocessedLanguage string
 	Input                string
 	Output               string
-	UnknownArgs          []string
 	LocalArgs            []string
 	RemoteArgs           []string
 	Flag                 Flags
@@ -130,7 +129,11 @@ func smellsLikeInput(arg string) bool {
 type filterWhere int
 
 const (
-	filterLocal  = 1 << 0
+	// filterLocal means that we should filter this argument out of
+	// local compilations.
+	filterLocal = 1 << 0
+	// filterRemote means that we should filter this argument out of
+	// remote compilations.
 	filterRemote = 1 << 1
 	filterBoth   = filterLocal | filterRemote
 )
@@ -180,11 +183,11 @@ var argSpecs = []argSpec{
 	}, false},
 	{"-D", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Defs = append(c.Defs, Def{"-D", arg})
-		return filterRemote, nil
+		return 0, nil
 	}, true},
 	{"-U", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Defs = append(c.Defs, Def{"-U", arg})
-		return filterRemote, nil
+		return 0, nil
 	}, true},
 	{"-c", func(c *Compilation, arg string) (filterWhere, error) {
 		c.Flag.C = true
@@ -346,7 +349,8 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 				break
 			}
 			if !found {
-				out.UnknownArgs = append(out.UnknownArgs, arg)
+				// Preserve any arguments that don't have a
+				// matching spec.
 				out.LocalArgs = append(out.LocalArgs, arg)
 				out.RemoteArgs = append(out.RemoteArgs, arg)
 			}
@@ -356,7 +360,6 @@ func ParseCompile(cfg *Config, argv []string) (Compilation, error) {
 			}
 			out.Input = arg
 		} else {
-			out.UnknownArgs = append(out.UnknownArgs, arg)
 			out.LocalArgs = append(out.LocalArgs, arg)
 			out.RemoteArgs = append(out.RemoteArgs, arg)
 		}

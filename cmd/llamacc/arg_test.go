@@ -39,9 +39,8 @@ func TestParseCompile(t *testing.T) {
 				PreprocessedLanguage: "cpp-output",
 				Input:                "platform/linux/linux_ptrace.c",
 				Output:               "platform/linux/linux_ptrace.o",
-				UnknownArgs:          []string{"-Wall", "-Werror", "-g"},
 				LocalArgs:            []string{"-MD", "-Wall", "-Werror", "-D_GNU_SOURCE", "-g", "-MF", "platform/linux/linux_ptrace.d"},
-				RemoteArgs:           []string{"-Wall", "-Werror", "-g", "-c"},
+				RemoteArgs:           []string{"-Wall", "-Werror", "-D_GNU_SOURCE", "-g", "-c"},
 				Flag: Flags{
 					MD: true,
 					C:  true,
@@ -116,9 +115,8 @@ func TestParseCompile(t *testing.T) {
 				PreprocessedLanguage: "assembler",
 				Input:                "/home/nelhage/code/boringssl/build/crypto/chacha/chacha-x86_64.S",
 				Output:               "CMakeFiles/crypto.dir/chacha/chacha-x86_64.S.o",
-				UnknownArgs:          []string{"-Wa,--noexecstack", "-Wa,-g"},
 				LocalArgs:            []string{"-DBORINGSSL_DISPATCH_TEST", "-DBORINGSSL_HAVE_LIBUNWIND", "-DBORINGSSL_IMPLEMENTATION", "-I/home/nelhage/code/boringssl/third_party/googletest/include", "-I/home/nelhage/code/boringssl/crypto/../include", "-Wa,--noexecstack", "-Wa,-g"},
-				RemoteArgs:           []string{"-Wa,--noexecstack", "-Wa,-g", "-c"},
+				RemoteArgs:           []string{"-DBORINGSSL_DISPATCH_TEST", "-DBORINGSSL_HAVE_LIBUNWIND", "-DBORINGSSL_IMPLEMENTATION", "-Wa,--noexecstack", "-Wa,-g", "-c"},
 				Flag: Flags{
 					C: true,
 				},
